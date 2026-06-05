@@ -410,16 +410,14 @@ class SyncHub extends ChangeNotifier {
   }
 
   String _buildFileName(Map<String, dynamic> activity) {
-    final title = activity['title'] ?? activity['name'] ?? '';
     final startTime = activity['startTime'] ?? activity['start_time'] ?? '';
-    // 提取日期部分 (取前10位: YYYY-MM-DD)
-    final safeTitle = title.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_');
-    final date = startTime.length >= 10 ? startTime.substring(0, 10) : '';
-
-    if (safeTitle.isNotEmpty) {
-      return date.isNotEmpty ? '${date}_$safeTitle.fit' : '$safeTitle.fit';
-    }
-    return date.isNotEmpty ? 'Ride-$date.fit' : 'Ride.fit';
+    // 提取日期时间部分 (YYYY-MM-DD_HH-mm-ss)
+    final dateTime = startTime.length >= 19
+        ? startTime.substring(0, 19).replaceAll(':', '-').replaceAll('T', '_')
+        : startTime.length >= 10
+            ? startTime.substring(0, 10)
+            : DateTime.now().toIso8601String().substring(0, 19).replaceAll(':', '-').replaceAll('T', '_');
+    return 'ridefitsync_$dateTime.fit';
   }
 
   // 并行上传到所有已登录且已启用的平台（排除数据源）

@@ -203,7 +203,7 @@ WpJmn7JfXB4HTMWjPVoyRZmSYjW4L8GrWmh51Qj7DwpTADadF3aq04o+s1b8LXJa
       request.fields['file_source'] = 'undefined';
       request.fields['fit_filename'] = fileName;
       request.fields['md5'] = md5Hash;
-      request.fields['name'] = 'AutoFit2Strava-${DateTime.now().toIso8601String()}';
+      request.fields['name'] = fileName;
       request.fields['sport'] = '3'; // 3=骑行
 
       var streamedResponse = await request.send();
