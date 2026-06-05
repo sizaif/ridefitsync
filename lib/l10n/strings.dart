@@ -141,6 +141,17 @@ class S {
   String get donateFooter => _isZh ? '您的每一份支持都是我们前进的动力' : 'Every bit of support keeps us going';
   String get donateThanks2 => _isZh ? '❤️ 谢谢 ❤️' : '❤️ Thank you ❤️';
 
+  // ===== 更新 =====
+  String get alreadyLatestVersion => _isZh ? '已是最新版本' : 'Already up to date';
+  String get findNewVersion => _isZh ? '发现新版本' : 'New version available';
+  String get changelog => _isZh ? '更新内容' : 'Changelog';
+  String get versionNo => _isZh ? '版本号' : 'Version';
+  String get updateNow => _isZh ? '立即更新' : 'Update Now';
+  String get checkUpdateFailed => _isZh ? '检查更新失败' : 'Check update failed';
+  String get downloading => _isZh ? '正在下载...' : 'Downloading...';
+  String get downloadFailed => _isZh ? '下载失败，请重试' : 'Download failed, please retry';
+  String get installPrompt => _isZh ? '下载完成，即将安装更新' : 'Downloaded, installing...';
+
   // ===== 日志 =====
   String get noLogs => _isZh ? '暂无日志' : 'No logs';
 }

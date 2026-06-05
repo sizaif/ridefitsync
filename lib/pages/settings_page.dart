@@ -11,6 +11,7 @@ import 'sync_settings_page.dart';
 import 'donate_page.dart';
 import '../managers/locale_manager.dart';
 import '../l10n/strings.dart';
+import '../upgrader.dart';
 
 const _orange = Color(0xFFFC4C02);
 
@@ -274,7 +275,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 ListTile(
                   leading: const Icon(Icons.info_outline, color: _orange),
                   title: Text(S.current.version),
-                  trailing: const Text('1.0.1 长安四季@小悟空'),
+                  trailing: Text(AppUpgrader.currentVersion),
+                  onTap: () => AppUpgrader.checkUpgrade(context),
                 ),
                 Divider(height: 1, color: theme.dividerColor),
                 ListTile(
