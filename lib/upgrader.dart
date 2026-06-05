@@ -208,7 +208,7 @@ class AppUpgrader {
       }
 
       if (Platform.isAndroid) {
-        const channel = MethodChannel('com.autofit2strava/installer');
+        const channel = MethodChannel('com.example.ridefitsync/installer');
         await channel.invokeMethod('installApk', {'path': file.path});
       }
 

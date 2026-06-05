@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:share_handler/share_handler.dart';
 import 'package:app_links/app_links.dart';
 import '../sync_hub.dart';
 import '../log_manager.dart';
@@ -71,20 +71,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // === 分享接收 ===
 
   void _initSharingIntent() {
-    _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen(
-      (files) => _handleSharedFiles(files),
+    final handler = ShareHandler.instance;
+    _intentSub = handler.sharedMediaStream.listen(
+      (media) => _handleSharedMedia(media),
       onError: (e) => LogManager().addLog('分享接收错误: $e', isError: true),
     );
-    ReceiveSharingIntent.instance.getInitialMedia().then((files) {
-      if (files.isNotEmpty) _handleSharedFiles(files);
+    handler.getInitialSharedMedia().then((media) {
+      if (media != null) _handleSharedMedia(media);
     });
   }
 
-  void _handleSharedFiles(List<SharedMediaFile> files) {
-    for (final file in files) {
-      final ext = file.path.split('.').last.toLowerCase();
+  void _handleSharedMedia(SharedMedia media) {
+    final attachments = media.attachments;
+    if (attachments == null || attachments.isEmpty) {
+      LogManager().addLog('没有收到文件', isError: true);
+      return;
+    }
+    for (final attachment in attachments) {
+      if (attachment == null) continue;
+      final path = attachment.path;
+      final ext = path.split('.').last.toLowerCase();
       if (['fit', 'gpx', 'tcx'].contains(ext)) {
-        _navigateToUpload(filePath: file.path);
+        _navigateToUpload(filePath: path);
         return;
       }
     }

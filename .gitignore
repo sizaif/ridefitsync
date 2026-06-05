@@ -13,10 +13,12 @@
 .claude/
 migrate_working_dir/
 *.jks
+**/key.properties
 # IntelliJ related
 *.iml
 *.ipr
 *.iws
+*.b64
 .idea/
 ref/
 # The .vscode folder contains launch configuration and tasks you configure in
