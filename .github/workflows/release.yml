@@ -27,6 +27,12 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Sync version from tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version: .*/version: ${TAG_VERSION}+$(echo ${TAG_VERSION} | tr -d '.' | sed 's/^0*//' )/" pubspec.yaml
+          echo "Version set to: ${TAG_VERSION}"
+
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
