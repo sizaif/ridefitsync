@@ -80,6 +80,7 @@ class GiantManager extends ChangeNotifier {
     await _storage.delete(key: 'giant_nickname');
     _username = null;
     _token = null;
+    _service.token = null;
     _logManager.addLog('捷安特已登出');
     notifyListeners();
   }

@@ -13,6 +13,7 @@ import 'managers/edge_ride_manager.dart';
 import 'log_manager.dart';
 import 'app_storage.dart';
 import 'coord_fixer.dart';
+import 'fit_analyzer.dart';
 import 'sync_record_manager.dart';
 
 /// 同步中心 - 协调所有平台的同步
@@ -31,6 +32,7 @@ class SyncHub extends ChangeNotifier {
   final _logManager = LogManager();
   final _storage = AppStorage();
   final _syncRecordManager = SyncRecordManager();
+  bool _managerListenersAttached = false;
   AppStorage get storage => _storage;
   SyncRecordManager get syncRecordManager => _syncRecordManager;
 
@@ -46,9 +48,59 @@ class SyncHub extends ChangeNotifier {
   int _skippedCount = 0;
   int get skippedCount => _skippedCount;
 
+  // 坐标系：国内平台使用 GCJ-02，海外平台使用 WGS-84
+  static const _gcjPlatforms = {
+    'onelap',
+    'igp',
+    'xingzhe',
+    'giant',
+    'edge_ride',
+  };
+  static bool _isGcjPlatform(String platform) =>
+      _gcjPlatforms.contains(platform);
+
+  /// 计算目标平台需要的坐标纠偏方向
+  /// 只有在「国内源(GCJ-02) → 海外目标(WGS-84)」时才需要纠偏
+  /// 海外源 → 国内目标时不转换，国内平台会自行处理坐标
+  CoordDirection? _coordDirection(String target) {
+    final sourceGcj = _isGcjPlatform(_dataSource);
+    final targetGcj = _isGcjPlatform(target);
+    if (sourceGcj && !targetGcj) return CoordDirection.gcj2wgs; // GCJ→WGS
+    return null; // 其他情况不转换
+  }
+
+  /// 对指定 target 做坐标纠偏（如需要），返回纠偏后的 bytes
+  Future<Uint8List> _maybeCorrect(
+    Uint8List bytes,
+    String fileName,
+    String target,
+  ) async {
+    final dir = _coordDirection(target);
+    if (dir == null) return bytes;
+    final ext = fileName.split('.').last.toLowerCase();
+    if (!['fit', 'gpx', 'tcx'].contains(ext)) return bytes;
+    try {
+      final corrected = await CoordFixer.processFile(bytes, ext, dir);
+      final result = CoordFixer.lastDetectionResult;
+      _logManager.addLog(
+        '坐标纠偏: ${dir == CoordDirection.gcj2wgs ? "GCJ-02→WGS-84" : "WGS-84→GCJ-02"} '
+        '(源:$_dataSource → 目标:$target, 样本:${CoordFixer.lastSampleCount}'
+        '${result != null ? ", 已${result == (dir == CoordDirection.gcj2wgs ? false : true) ? "" : "无需"}纠正" : ""})',
+      );
+      return corrected;
+    } catch (e) {
+      _logManager.addLog('坐标纠偏失败: $e', isError: true);
+      return bytes;
+    }
+  }
+
   // 数据源平台（默认顽鹿）
   String _dataSource = 'onelap';
   String get dataSource => _dataSource;
+
+  // 活动时间范围: all/today/week/month
+  String _activityTimeRange = 'today';
+  String get activityTimeRange => _activityTimeRange;
 
   // 本地缓存的 FIT 文件（最新一个活动）
   Uint8List? _cachedFitBytes;
@@ -69,13 +121,13 @@ class SyncHub extends ChangeNotifier {
   bool _enableGiant = true;
   bool _enableGarmin = true;
   bool _enableEdgeRide = true;
-  bool _fixCoordinates = true;
+  bool _enableActivityDescription = true;
   bool _forceSync = false; // 强制同步开关
 
   // 定时自动同步
   Timer? _autoSyncTimer;
   bool _autoSyncEnabled = false;
-  int _syncIntervalMinutes = 30;
+  int _syncIntervalMinutes = 120;
   void Function(int successCount, int failCount)? onSyncCompleted;
 
   bool get autoSyncEnabled => _autoSyncEnabled;
@@ -87,7 +139,7 @@ class SyncHub extends ChangeNotifier {
   bool get enableGiant => _enableGiant;
   bool get enableGarmin => _enableGarmin;
   bool get enableEdgeRide => _enableEdgeRide;
-  bool get fixCoordinates => _fixCoordinates;
+  bool get enableActivityDescription => _enableActivityDescription;
   bool get forceSync => _forceSync;
 
   // 初始化所有管理器
@@ -101,10 +153,21 @@ class SyncHub extends ChangeNotifier {
     await _giantManager.init();
     await _garminManager.init();
     await _edgeRideManager.init();
+    _attachManagerListeners();
     await loadSettings();
 
     // 异步预加载最新活动（不阻塞启动）
     _preloadLatestActivity();
+  }
+
+  void _attachManagerListeners() {
+    if (_managerListenersAttached) return;
+    _stravaManager.addListener(_onManagerStateChanged);
+    _managerListenersAttached = true;
+  }
+
+  void _onManagerStateChanged() {
+    notifyListeners();
   }
 
   // 预加载最新活动到缓存
@@ -132,22 +195,54 @@ class SyncHub extends ChangeNotifier {
 
   Future<void> loadSettings() async {
     _dataSource = await _storage.readPrefs(key: 'data_source') ?? 'onelap';
-    _enableOnelap = await _storage.readBoolPrefs(key: 'enable_onelap', defaultValue: true);
-    _enableStrava = await _storage.readBoolPrefs(key: 'enable_strava', defaultValue: true);
-    _enableIgp = await _storage.readBoolPrefs(key: 'enable_igp', defaultValue: true);
-    _enableXingzhe = await _storage.readBoolPrefs(key: 'enable_xingzhe', defaultValue: true);
-    _enableGiant = await _storage.readBoolPrefs(key: 'enable_giant', defaultValue: true);
-    _enableGarmin = await _storage.readBoolPrefs(key: 'enable_garmin', defaultValue: true);
-    _enableEdgeRide = await _storage.readBoolPrefs(key: 'enable_edge_ride', defaultValue: true);
-    _fixCoordinates = await _storage.readBoolPrefs(key: 'fix_coordinates', defaultValue: true);
-    _forceSync = await _storage.readBoolPrefs(key: 'force_sync', defaultValue: false);
+    _activityTimeRange =
+        await _storage.readPrefs(key: 'activity_time_range') ?? 'today';
+    _enableOnelap = await _storage.readBoolPrefs(
+      key: 'enable_onelap',
+      defaultValue: true,
+    );
+    _enableStrava = await _storage.readBoolPrefs(
+      key: 'enable_strava',
+      defaultValue: true,
+    );
+    _enableIgp = await _storage.readBoolPrefs(
+      key: 'enable_igp',
+      defaultValue: true,
+    );
+    _enableXingzhe = await _storage.readBoolPrefs(
+      key: 'enable_xingzhe',
+      defaultValue: true,
+    );
+    _enableGiant = await _storage.readBoolPrefs(
+      key: 'enable_giant',
+      defaultValue: true,
+    );
+    _enableGarmin = await _storage.readBoolPrefs(
+      key: 'enable_garmin',
+      defaultValue: true,
+    );
+    _enableEdgeRide = await _storage.readBoolPrefs(
+      key: 'enable_edge_ride',
+      defaultValue: true,
+    );
+    _enableActivityDescription = await _storage.readBoolPrefs(
+      key: 'activity_description',
+      defaultValue: true,
+    );
+    _forceSync = await _storage.readBoolPrefs(
+      key: 'force_sync',
+      defaultValue: false,
+    );
     await _loadAutoSyncSettings();
     notifyListeners();
   }
 
   Future<void> _loadAutoSyncSettings() async {
     _autoSyncEnabled = await _storage.readBoolPrefs(key: 'auto_sync');
-    _syncIntervalMinutes = await _storage.readIntPrefs(key: 'sync_interval', defaultValue: 30);
+    _syncIntervalMinutes = await _storage.readIntPrefs(
+      key: 'sync_interval',
+      defaultValue: 120,
+    );
     if (_autoSyncEnabled) {
       _startAutoSyncTimer();
     }
@@ -214,6 +309,28 @@ class SyncHub extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setActivityTimeRange(String range) async {
+    _activityTimeRange = range;
+    await _storage.writePrefs(key: 'activity_time_range', value: range);
+    notifyListeners();
+  }
+
+  /// 根据时间范围计算 startDate
+  DateTime? get activityStartDate {
+    switch (_activityTimeRange) {
+      case 'today':
+        return DateTime.now().subtract(const Duration(days: 1));
+      case '3days':
+        return DateTime.now().subtract(const Duration(days: 3));
+      case 'week':
+        return DateTime.now().subtract(const Duration(days: 7));
+      case 'month':
+        return DateTime.now().subtract(const Duration(days: 30));
+      default:
+        return null; // 'all' — 不限制
+    }
+  }
+
   Future<void> setEnableOnelap(bool value) async {
     _enableOnelap = value;
     await _storage.writeBoolPrefs(key: 'enable_onelap', value: value);
@@ -256,9 +373,9 @@ class SyncHub extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setFixCoordinates(bool value) async {
-    _fixCoordinates = value;
-    await _storage.writeBoolPrefs(key: 'fix_coordinates', value: value);
+  Future<void> setEnableActivityDescription(bool value) async {
+    _enableActivityDescription = value;
+    await _storage.writeBoolPrefs(key: 'activity_description', value: value);
     notifyListeners();
   }
 
@@ -306,13 +423,26 @@ class SyncHub extends ChangeNotifier {
     if (!isDataSourceLoggedIn) return false;
     // 数据源不能同时作为上传目标
     bool hasTarget = false;
-    if (_dataSource != 'onelap' && _enableOnelap && _onelapManager.isLoggedIn) hasTarget = true;
-    if (_dataSource != 'strava' && _enableStrava && _stravaManager.isAuthenticated) hasTarget = true;
-    if (_dataSource != 'igp' && _enableIgp && _igpManager.isLoggedIn) hasTarget = true;
-    if (_dataSource != 'xingzhe' && _enableXingzhe && _xingzheManager.isLoggedIn) hasTarget = true;
-    if (_dataSource != 'giant' && _enableGiant && _giantManager.isLoggedIn) hasTarget = true;
-    if (_dataSource != 'garmin' && _enableGarmin && _garminManager.isLoggedIn) hasTarget = true;
-    if (_dataSource != 'edge_ride' && _enableEdgeRide && _edgeRideManager.isLoggedIn) hasTarget = true;
+    if (_dataSource != 'onelap' && _enableOnelap && _onelapManager.isLoggedIn)
+      hasTarget = true;
+    if (_dataSource != 'strava' &&
+        _enableStrava &&
+        _stravaManager.isAuthenticated)
+      hasTarget = true;
+    if (_dataSource != 'igp' && _enableIgp && _igpManager.isLoggedIn)
+      hasTarget = true;
+    if (_dataSource != 'xingzhe' &&
+        _enableXingzhe &&
+        _xingzheManager.isLoggedIn)
+      hasTarget = true;
+    if (_dataSource != 'giant' && _enableGiant && _giantManager.isLoggedIn)
+      hasTarget = true;
+    if (_dataSource != 'garmin' && _enableGarmin && _garminManager.isLoggedIn)
+      hasTarget = true;
+    if (_dataSource != 'edge_ride' &&
+        _enableEdgeRide &&
+        _edgeRideManager.isLoggedIn)
+      hasTarget = true;
     return hasTarget;
   }
 
@@ -366,26 +496,35 @@ class SyncHub extends ChangeNotifier {
           // 检查是否需要同步
           if (!_forceSync) {
             // 非强制模式下，检查是否已经同步到所有启用的平台
-            final platformsToSync = _syncRecordManager.getPlatformsToSync(activityId, enabledPlatforms);
+            final platformsToSync = _syncRecordManager.getPlatformsToSync(
+              activityId,
+              enabledPlatforms,
+            );
             if (platformsToSync.isEmpty) {
               _logManager.addLog('跳过活动（已同步）: $title');
               _skippedCount++;
               continue;
             }
-            _logManager.addLog('处理活动: $title (待同步平台: ${platformsToSync.join(", ")})');
+            _logManager.addLog(
+              '处理活动: $title (待同步平台: ${platformsToSync.join(", ")})',
+            );
           } else {
             _logManager.addLog('处理活动（强制模式）: $title');
           }
 
           // 4. 下载FIT文件
           final fitBytes = await _downloadSourceFit(activity);
-          final fileName = _buildFileName(activity);
+          final fileName = _buildFileName(activity, fitBytes: fitBytes);
 
           // Debug: 保存原始下载的 FIT 文件
           await _saveDebugFile(fitBytes, 'original', fileName);
 
           // 5. 上传到各平台（带同步状态记录）
-          await uploadToAllPlatforms(fitBytes, fileName, activityId: activityId);
+          await uploadToAllPlatforms(
+            fitBytes,
+            fileName,
+            activityId: activityId,
+          );
 
           _syncedCount++;
         } catch (e) {
@@ -394,7 +533,9 @@ class SyncHub extends ChangeNotifier {
         }
       }
 
-      _logManager.addLog('同步完成: 成功 $_syncedCount, 失败 $_failedCount, 跳过 $_skippedCount');
+      _logManager.addLog(
+        '同步完成: 成功 $_syncedCount, 失败 $_failedCount, 跳过 $_skippedCount',
+      );
       onSyncCompleted?.call(_syncedCount, _failedCount);
     } catch (e) {
       _logManager.addLog('同步错误: $e', isError: true);
@@ -425,13 +566,17 @@ class SyncHub extends ChangeNotifier {
     if (_dataSource != 'onelap' && _enableOnelap && _onelapManager.isLoggedIn) {
       platforms.add('onelap');
     }
-    if (_dataSource != 'strava' && _enableStrava && _stravaManager.isAuthenticated) {
+    if (_dataSource != 'strava' &&
+        _enableStrava &&
+        _stravaManager.isAuthenticated) {
       platforms.add('strava');
     }
     if (_dataSource != 'igp' && _enableIgp && _igpManager.isLoggedIn) {
       platforms.add('igp');
     }
-    if (_dataSource != 'xingzhe' && _enableXingzhe && _xingzheManager.isLoggedIn) {
+    if (_dataSource != 'xingzhe' &&
+        _enableXingzhe &&
+        _xingzheManager.isLoggedIn) {
       platforms.add('xingzhe');
     }
     if (_dataSource != 'giant' && _enableGiant && _giantManager.isLoggedIn) {
@@ -440,7 +585,9 @@ class SyncHub extends ChangeNotifier {
     if (_dataSource != 'garmin' && _enableGarmin && _garminManager.isLoggedIn) {
       platforms.add('garmin');
     }
-    if (_dataSource != 'edge_ride' && _enableEdgeRide && _edgeRideManager.isLoggedIn) {
+    if (_dataSource != 'edge_ride' &&
+        _enableEdgeRide &&
+        _edgeRideManager.isLoggedIn) {
       platforms.add('edge_ride');
     }
     return platforms;
@@ -463,11 +610,12 @@ class SyncHub extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> _getSourceActivities() async {
+    final startDate = activityStartDate;
     switch (_dataSource) {
       case 'onelap':
-        return await _onelapManager.getActivities();
+        return await _onelapManager.getActivities(startDate: startDate);
       case 'igp':
-        return await _igpManager.getActivities();
+        return await _igpManager.getActivities(startDate: startDate);
       case 'xingzhe':
         return await _xingzheManager.getActivities();
       case 'garmin':
@@ -500,43 +648,81 @@ class SyncHub extends ChangeNotifier {
     }
   }
 
-  String _buildFileName(Map<String, dynamic> activity) {
+  String _buildFileName(Map<String, dynamic> activity, {Uint8List? fitBytes}) {
+    String ts;
     final startTime = activity['startTime'] ?? activity['start_time'] ?? '';
-    // 提取日期时间部分 (YYYY-MM-DD_HH-mm-ss)
-    final dateTime = startTime.length >= 19
-        ? startTime.substring(0, 19).replaceAll(':', '-').replaceAll('T', '_')
-        : startTime.length >= 10
-            ? startTime.substring(0, 10)
-            : DateTime.now().toIso8601String().substring(0, 19).replaceAll(':', '-').replaceAll('T', '_');
-    return 'ridefitsync_$dateTime.fit';
-  }
-
-  // 并行上传到所有已登录且已启用的平台（排除数据源）
-  Future<void> uploadToAllPlatforms(Uint8List fitBytes, String fileName, {String? activityId}) async {
-    // 坐标纠偏
-    if (_fixCoordinates) {
-      final ext = fileName.split('.').last.toLowerCase();
-      if (['fit', 'gpx', 'tcx'].contains(ext)) {
-        try {
-          fitBytes = await CoordFixer.processFile(fitBytes, ext);
-          // 记录坐标检测结果
-          final detectionResult = CoordFixer.lastDetectionResult;
-          final sampleCount = CoordFixer.lastSampleCount;
-          if (detectionResult == true) {
-            _logManager.addLog('坐标检测: WGS-84 (无需纠正, 样本数: $sampleCount)');
-          } else if (detectionResult == false) {
-            _logManager.addLog('坐标检测: GCJ-02 (已纠正为 WGS-84, 样本数: $sampleCount)');
-          } else {
-            _logManager.addLog('坐标检测: 无坐标数据');
-          }
-          // Debug: 保存坐标纠偏后的 FIT 文件
-          await _saveDebugFile(fitBytes, 'fixed', fileName);
-        } catch (e) {
-          _logManager.addLog('坐标纠偏失败: $e', isError: true);
-        }
-      }
+    if (startTime.length >= 19) {
+      ts = startTime
+          .substring(0, 19)
+          .replaceAll(':', '')
+          .replaceAll('-', '')
+          .replaceAll('T', '');
+    } else if (startTime.length >= 10) {
+      ts = startTime.substring(0, 10).replaceAll('-', '');
+    } else {
+      final now = DateTime.now();
+      ts =
+          '${now.year}${_pad2(now.month)}${_pad2(now.day)}${_pad2(now.hour)}${_pad2(now.minute)}';
     }
 
+    if (fitBytes != null) {
+      try {
+        final data = FitAnalyzer.analyze(fitBytes);
+        final title = FitAnalyzer.buildTitle(data);
+        if (title.isNotEmpty) return '$title-$ts.fit';
+      } catch (_) {}
+    }
+    return 'ridesync_$ts.fit';
+  }
+
+  /// 行者/EdgeRide 不支持中文文件名，转成英文
+  static const _asciiPlatforms = {'xingzhe', 'edge_ride'};
+  String _fileNameForPlatform(
+    String fileName,
+    String platform,
+    Uint8List fitBytes,
+  ) {
+    if (!_asciiPlatforms.contains(platform)) return fileName;
+    try {
+      final data = FitAnalyzer.analyze(fitBytes);
+      final ts = _extractTimestampForFileName(fileName);
+      final title = _sanitizeAsciiFileBaseName(
+        FitAnalyzer.buildTitleAscii(data),
+      );
+      final baseName = title.isNotEmpty ? title : 'ridesync';
+      final suffix = ts.isNotEmpty ? '-$ts' : '';
+      return '$baseName$suffix.fit';
+    } catch (_) {}
+    return _sanitizeAsciiFileName(fileName);
+  }
+
+  String _extractTimestampForFileName(String fileName) {
+    final baseName = fileName.replaceFirst(RegExp(r'\.[^.]+$'), '');
+    final match = RegExp(r'(\d{8,14})').firstMatch(baseName);
+    return match?.group(1) ?? '';
+  }
+
+  String _sanitizeAsciiFileName(String fileName) {
+    final name = _sanitizeAsciiFileBaseName(fileName);
+    return '${name.isNotEmpty ? name : "ridesync"}.fit';
+  }
+
+  String _sanitizeAsciiFileBaseName(String fileName) {
+    var name = fileName.replaceFirst(RegExp(r'\.[^.]+$'), '');
+    return name
+        .replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '-')
+        .replaceAll(RegExp(r'-{2,}'), '-')
+        .replaceAll(RegExp(r'^[._-]+|[._-]+$'), '');
+  }
+
+  static String _pad2(int n) => n.toString().padLeft(2, '0');
+
+  // 并行上传到所有已登录且已启用的平台（排除数据源）
+  Future<void> uploadToAllPlatforms(
+    Uint8List fitBytes,
+    String fileName, {
+    String? activityId,
+  }) async {
     // 如果没有 activityId，直接上传所有平台（兼容旧逻辑）
     if (activityId == null) {
       await _uploadToAllPlatformsLegacy(fitBytes, fileName);
@@ -554,42 +740,65 @@ class SyncHub extends ChangeNotifier {
       return;
     }
 
-    // 按平台上传
+    // 按平台上传（每个平台独立纠偏方向）
     final results = <String, bool>{};
     for (var platform in platformsToSync) {
       try {
+        final corrected = await _maybeCorrect(fitBytes, fileName, platform);
         bool success = false;
         switch (platform) {
           case 'strava':
-            success = await _uploadToStrava(fitBytes, fileName);
+            success = await _uploadToStrava(
+              corrected,
+              fileName,
+              externalId: activityId,
+            );
             break;
           case 'igp':
-            success = await _uploadToIgp(fitBytes, fileName);
+            success = await _uploadToIgp(corrected, fileName);
             break;
           case 'xingzhe':
-            success = await _uploadToXingzhe(fitBytes, fileName);
+            success = await _uploadToXingzhe(corrected, fileName);
             break;
           case 'giant':
-            success = await _uploadToGiant(fitBytes, fileName);
+            success = await _uploadToGiant(corrected, fileName);
             break;
           case 'garmin':
-            success = await _uploadToGarmin(fitBytes, fileName);
+            success = await _uploadToGarmin(corrected, fileName);
             break;
           case 'edge_ride':
-            success = await _uploadToEdgeRide(fitBytes, fileName);
+            success = await _uploadToEdgeRide(corrected, fileName);
+            break;
+          case 'onelap':
+            success = await _uploadToOnelap(corrected, fileName);
             break;
         }
         results[platform] = success;
 
         // 记录同步状态
         if (success) {
-          await _syncRecordManager.recordSuccess(activityId, platform);
+          await _syncRecordManager.recordSuccess(
+            activityId,
+            platform,
+            activityName: fileName,
+          );
         } else {
-          await _syncRecordManager.recordFailure(activityId, platform, '上传失败');
+          await _syncRecordManager.recordFailure(
+            activityId,
+            platform,
+            '上传失败',
+            activityName: fileName,
+          );
         }
       } catch (e) {
         results[platform] = false;
-        await _syncRecordManager.recordFailure(activityId, platform, e.toString());
+        final errMsg = e.toString().replaceFirst('Exception: ', '');
+        await _syncRecordManager.recordFailure(
+          activityId,
+          platform,
+          errMsg,
+          activityName: fileName,
+        );
         _logManager.addLog('上传到 $platform 失败: $e', isError: true);
       }
     }
@@ -600,47 +809,100 @@ class SyncHub extends ChangeNotifier {
     if (successCount == 0 && results.isNotEmpty) {
       throw Exception('所有目标平台上传均失败');
     } else if (failCount > 0) {
-      _logManager.addLog('部分平台上传失败: $successCount/${results.length} 成功, $failCount 失败');
+      _logManager.addLog(
+        '部分平台上传失败: $successCount/${results.length} 成功, $failCount 失败',
+      );
     }
   }
 
   // 兼容旧逻辑的上传方法
-  Future<void> _uploadToAllPlatformsLegacy(Uint8List fitBytes, String fileName) async {
+  Future<void> _uploadToAllPlatformsLegacy(
+    Uint8List fitBytes,
+    String fileName,
+  ) async {
     final futures = <Future<bool>>[];
 
     // 顽鹿（数据源不能是onelap）
     if (_dataSource != 'onelap' && _enableOnelap && _onelapManager.isLoggedIn) {
-      futures.add(_uploadToOnelap(fitBytes, fileName));
+      futures.add(
+        _maybeCorrect(
+          fitBytes,
+          fileName,
+          'onelap',
+        ).then((b) => _uploadToOnelap(b, fileName)),
+      );
     }
 
     // Strava（数据源不能是strava）
-    if (_dataSource != 'strava' && _enableStrava && _stravaManager.isAuthenticated) {
-      futures.add(_uploadToStrava(fitBytes, fileName));
+    if (_dataSource != 'strava' &&
+        _enableStrava &&
+        _stravaManager.isAuthenticated) {
+      futures.add(
+        _maybeCorrect(
+          fitBytes,
+          fileName,
+          'strava',
+        ).then((b) => _uploadToStrava(b, fileName)),
+      );
     }
 
     // iGPSPORT（数据源不能是igp）
     if (_dataSource != 'igp' && _enableIgp && _igpManager.isLoggedIn) {
-      futures.add(_uploadToIgp(fitBytes, fileName));
+      futures.add(
+        _maybeCorrect(
+          fitBytes,
+          fileName,
+          'igp',
+        ).then((b) => _uploadToIgp(b, fileName)),
+      );
     }
 
     // 行者（数据源不能是xingzhe）
-    if (_dataSource != 'xingzhe' && _enableXingzhe && _xingzheManager.isLoggedIn) {
-      futures.add(_uploadToXingzhe(fitBytes, fileName));
+    if (_dataSource != 'xingzhe' &&
+        _enableXingzhe &&
+        _xingzheManager.isLoggedIn) {
+      futures.add(
+        _maybeCorrect(
+          fitBytes,
+          fileName,
+          'xingzhe',
+        ).then((b) => _uploadToXingzhe(b, fileName)),
+      );
     }
 
     // 捷安特
     if (_dataSource != 'giant' && _enableGiant && _giantManager.isLoggedIn) {
-      futures.add(_uploadToGiant(fitBytes, fileName));
+      futures.add(
+        _maybeCorrect(
+          fitBytes,
+          fileName,
+          'giant',
+        ).then((b) => _uploadToGiant(b, fileName)),
+      );
     }
 
     // 佳明
     if (_dataSource != 'garmin' && _enableGarmin && _garminManager.isLoggedIn) {
-      futures.add(_uploadToGarmin(fitBytes, fileName));
+      futures.add(
+        _maybeCorrect(
+          fitBytes,
+          fileName,
+          'garmin',
+        ).then((b) => _uploadToGarmin(b, fileName)),
+      );
     }
 
     // EdgeRide
-    if (_dataSource != 'edge_ride' && _enableEdgeRide && _edgeRideManager.isLoggedIn) {
-      futures.add(_uploadToEdgeRide(fitBytes, fileName));
+    if (_dataSource != 'edge_ride' &&
+        _enableEdgeRide &&
+        _edgeRideManager.isLoggedIn) {
+      futures.add(
+        _maybeCorrect(
+          fitBytes,
+          fileName,
+          'edge_ride',
+        ).then((b) => _uploadToEdgeRide(b, fileName)),
+      );
     }
 
     if (futures.isEmpty) return;
@@ -651,7 +913,9 @@ class SyncHub extends ChangeNotifier {
     if (successCount == 0) {
       throw Exception('所有目标平台上传均失败');
     } else if (failCount > 0) {
-      _logManager.addLog('部分平台上传失败: $successCount/${results.length} 成功, $failCount 失败');
+      _logManager.addLog(
+        '部分平台上传失败: $successCount/${results.length} 成功, $failCount 失败',
+      );
     }
   }
 
@@ -697,11 +961,10 @@ class SyncHub extends ChangeNotifier {
 
       // 取最新的一个活动
       final latestActivity = activities.first;
-      final fileName = _buildFileName(latestActivity);
 
       // 下载 FIT 文件
-      _logManager.addLog('下载FIT文件: $fileName');
       final fitBytes = await _downloadSourceFit(latestActivity);
+      final fileName = _buildFileName(latestActivity, fitBytes: fitBytes);
 
       // 更新缓存
       _cachedFitBytes = fitBytes;
@@ -732,50 +995,33 @@ class SyncHub extends ChangeNotifier {
   }
 
   // 公共方法：上传到单个平台
-  Future<void> uploadToSinglePlatform(String platform, Uint8List fitBytes, String fileName) async {
-    // 坐标纠偏
-    if (_fixCoordinates) {
-      final ext = fileName.split('.').last.toLowerCase();
-      if (['fit', 'gpx', 'tcx'].contains(ext)) {
-        try {
-          fitBytes = await CoordFixer.processFile(fitBytes, ext);
-          // 记录坐标检测结果
-          final detectionResult = CoordFixer.lastDetectionResult;
-          final sampleCount = CoordFixer.lastSampleCount;
-          if (detectionResult == true) {
-            _logManager.addLog('坐标检测: WGS-84 (无需纠正, 样本数: $sampleCount)');
-          } else if (detectionResult == false) {
-            _logManager.addLog('坐标检测: GCJ-02 (已纠正为 WGS-84, 样本数: $sampleCount)');
-          } else {
-            _logManager.addLog('坐标检测: 无坐标数据');
-          }
-        } catch (e) {
-          _logManager.addLog('坐标纠偏失败: $e', isError: true);
-        }
-      }
-    }
-
+  Future<void> uploadToSinglePlatform(
+    String platform,
+    Uint8List fitBytes,
+    String fileName,
+  ) async {
+    final corrected = await _maybeCorrect(fitBytes, fileName, platform);
     switch (platform) {
       case 'onelap':
-        await _uploadToOnelap(fitBytes, fileName);
+        await _uploadToOnelap(corrected, fileName);
         break;
       case 'strava':
-        await _uploadToStrava(fitBytes, fileName);
+        await _uploadToStrava(corrected, fileName, externalId: fileName);
         break;
       case 'igp':
-        await _uploadToIgp(fitBytes, fileName);
+        await _uploadToIgp(corrected, fileName);
         break;
       case 'xingzhe':
-        await _uploadToXingzhe(fitBytes, fileName);
+        await _uploadToXingzhe(corrected, fileName);
         break;
       case 'giant':
-        await _uploadToGiant(fitBytes, fileName);
+        await _uploadToGiant(corrected, fileName);
         break;
       case 'garmin':
-        await _uploadToGarmin(fitBytes, fileName);
+        await _uploadToGarmin(corrected, fileName);
         break;
       case 'edge_ride':
-        await _uploadToEdgeRide(fitBytes, fileName);
+        await _uploadToEdgeRide(corrected, fileName);
         break;
       default:
         throw Exception('不支持的平台: $platform');
@@ -792,10 +1038,31 @@ class SyncHub extends ChangeNotifier {
     }
   }
 
-  Future<bool> _uploadToStrava(Uint8List fitBytes, String fileName) async {
+  Future<bool> _uploadToStrava(
+    Uint8List fitBytes,
+    String fileName, {
+    String? externalId,
+  }) async {
     try {
-      await _stravaManager.uploadFitFile(fitBytes, fileName);
-      _logManager.addLog('Strava上传成功: $fileName');
+      // Strava name 始终使用智能标题，description 根据开关决定
+      String? activityName;
+      String? description;
+      try {
+        final data = FitAnalyzer.analyze(fitBytes);
+        activityName = FitAnalyzer.buildTitle(data);
+        if (_enableActivityDescription) {
+          description = FitAnalyzer.buildDescription(data);
+        }
+      } catch (e) {
+        _logManager.addLog('活动分析失败: $e', isError: true);
+      }
+      await _stravaManager.uploadFitFile(
+        fitBytes,
+        fileName,
+        externalId: externalId,
+        activityName: activityName,
+        description: description,
+      );
       return true;
     } catch (e) {
       _logManager.addLog('Strava上传失败: $e', isError: true);
@@ -816,7 +1083,8 @@ class SyncHub extends ChangeNotifier {
 
   Future<bool> _uploadToXingzhe(Uint8List fitBytes, String fileName) async {
     try {
-      await _xingzheManager.uploadFitFile(fitBytes, fileName);
+      final name = _fileNameForPlatform(fileName, 'xingzhe', fitBytes);
+      await _xingzheManager.uploadFitFile(fitBytes, name);
       _logManager.addLog('行者上传成功: $fileName');
       return true;
     } catch (e) {
@@ -849,7 +1117,8 @@ class SyncHub extends ChangeNotifier {
 
   Future<bool> _uploadToEdgeRide(Uint8List fitBytes, String fileName) async {
     try {
-      await _edgeRideManager.uploadFitFile(fitBytes, fileName);
+      final name = _fileNameForPlatform(fileName, 'edge_ride', fitBytes);
+      await _edgeRideManager.uploadFitFile(fitBytes, name);
       _logManager.addLog('EdgeRide上传成功: $fileName');
       return true;
     } catch (e) {
@@ -859,7 +1128,11 @@ class SyncHub extends ChangeNotifier {
   }
 
   // Debug: 保存文件到应用文档目录
-  Future<void> _saveDebugFile(Uint8List bytes, String prefix, String fileName) async {
+  Future<void> _saveDebugFile(
+    Uint8List bytes,
+    String prefix,
+    String fileName,
+  ) async {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final debugDir = Directory('${dir.path}/debug_fit');
@@ -868,7 +1141,10 @@ class SyncHub extends ChangeNotifier {
       }
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final baseName = fileName.replaceAll('.fit', '').replaceAll('.gpx', '').replaceAll('.tcx', '');
+      final baseName = fileName
+          .replaceAll('.fit', '')
+          .replaceAll('.gpx', '')
+          .replaceAll('.tcx', '');
       final ext = fileName.split('.').last;
       final savePath = '${debugDir.path}/${prefix}_${baseName}_$timestamp.$ext';
 

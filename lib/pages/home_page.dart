@@ -39,6 +39,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   StreamSubscription? _linkSub;
 
   bool _isUploading = false;
+  String? _lastProcessedCode;  // 防止 deep link 重复回调
 
   @override
   void initState() {
@@ -104,22 +105,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void _initDeepLinks() {
     try {
       final appLinks = AppLinks();
-      _linkSub = appLinks.uriLinkStream.listen((uri) {
-        if (uri.scheme == 'stravaauto') {
-          _handleStravaCallback(uri);
-        } else if (uri.scheme == 'file') {
-          final ext = uri.path.split('.').last.toLowerCase();
-          if (['fit', 'gpx', 'tcx'].contains(ext)) {
-            _navigateToUpload(filePath: uri.path);
-          }
-        }
+      appLinks.getInitialLink().then((uri) {
+        if (uri != null) _handleIncomingUri(uri);
       });
+      _linkSub = appLinks.uriLinkStream.listen(_handleIncomingUri);
     } catch (e) {
       LogManager().addLog('Deep link 初始化失败: $e', isError: true);
     }
   }
 
+  void _handleIncomingUri(Uri uri) {
+    if (uri.scheme == 'stravaauto') {
+      _handleStravaCallback(uri);
+    } else if (uri.scheme == 'file') {
+      final ext = uri.path.split('.').last.toLowerCase();
+      if (['fit', 'gpx', 'tcx'].contains(ext)) {
+        _navigateToUpload(filePath: uri.path);
+      }
+    }
+  }
+
   Future<void> _handleStravaCallback(Uri uri) async {
+    final code = uri.queryParameters['code'];
+    // 防止 getInitialLink + uriLinkStream 重复回调同一个 code
+    if (code != null) {
+      if (_lastProcessedCode == code) return;
+      _lastProcessedCode = code;
+    }
+
     try {
       final success = await _syncHub.stravaManager.handleAuthCallback(uri);
       if (success && mounted) {
@@ -133,6 +146,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
     } catch (e) {
       LogManager().addLog('Strava 授权回调失败: $e', isError: true);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Strava 授权失败: $e')));
+      }
     }
   }
 
@@ -150,9 +168,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final ext = file.name.split('.').last.toLowerCase();
         if (!['fit', 'gpx', 'tcx'].contains(ext)) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(S.current.onlyFitGpxTcx)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(S.current.onlyFitGpxTcx)));
           }
           return;
         }
@@ -167,7 +185,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  void _navigateToUpload({String? filePath, Uint8List? fileBytes, String? fileName}) {
+  void _navigateToUpload({
+    String? filePath,
+    Uint8List? fileBytes,
+    String? fileName,
+  }) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -192,9 +214,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           SnackBar(content: Text(S.current.syncComplete(success, failed))),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.noNewActivities)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.noNewActivities)));
       }
     }
   }
@@ -239,11 +261,62 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       default:
         return;
     }
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => page),
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _logoutPlatform(String platform, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(S.current.logoutTitle(name)),
+        content: Text(S.current.logoutConfirm(name)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(S.current.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              S.current.logout,
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
     );
-    if (result == true && mounted) setState(() {});
+    if (confirm != true) return;
+
+    switch (platform) {
+      case 'strava':
+        await _syncHub.stravaManager.logout();
+        break;
+      case 'igp':
+        await _syncHub.igpManager.logout();
+        break;
+      case 'xingzhe':
+        await _syncHub.xingzheManager.logout();
+        break;
+      case 'giant':
+        await _syncHub.giantManager.logout();
+        break;
+      case 'garmin':
+        await _syncHub.garminManager.logout();
+        break;
+      case 'edge_ride':
+        await _syncHub.edgeRideManager.logout();
+        break;
+      case 'onelap':
+        await _syncHub.onelapManager.logout();
+        break;
+    }
+
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(S.current.loggedOut(name))));
   }
 
   // === UI ===
@@ -338,7 +411,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             child: Icon(
               isSyncing
                   ? Icons.sync_rounded
-                  : (canSync ? Icons.sync_rounded : Icons.sync_disabled_rounded),
+                  : (canSync
+                        ? Icons.sync_rounded
+                        : Icons.sync_disabled_rounded),
               color: canSync ? Colors.white : theme.iconTheme.color,
               size: 24,
             ),
@@ -353,7 +428,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ? S.current.syncing
                       : (canSync ? S.current.ready : S.current.notReady),
                   style: theme.textTheme.titleMedium?.copyWith(
-                    color: canSync ? Colors.white : theme.textTheme.titleMedium?.color,
+                    color: canSync
+                        ? Colors.white
+                        : theme.textTheme.titleMedium?.color,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -383,9 +460,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   )
                 : Icon(
                     Icons.play_arrow_rounded,
-                    color: canSync ? Colors.white : Colors.white.withOpacity(0.3),
+                    color: canSync
+                        ? Colors.white
+                        : Colors.white.withOpacity(0.3),
                   ),
-            tooltip: isSyncing ? S.current.syncing : (canSync ? S.current.startSync : S.current.syncHint),
+            tooltip: isSyncing
+                ? S.current.syncing
+                : (canSync ? S.current.startSync : S.current.syncHint),
             onPressed: (isSyncing || !canSync) ? null : _startSync,
           ),
           IconButton(
@@ -436,7 +517,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               platform: 'strava',
             ),
           ),
-        if (_syncHub.dataSource != 'strava' && _syncHub.enableStrava) const SizedBox(height: 10),
+        if (_syncHub.dataSource != 'strava' && _syncHub.enableStrava)
+          const SizedBox(height: 10),
         if (_syncHub.dataSource != 'igp' && _syncHub.enableIgp)
           _buildThirdPartyActionTile(
             theme,
@@ -445,12 +527,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               name: S.current.igpsport,
               subtitle: S.current.platformSubtitle('igp'),
               color: AppTheme.igpColor,
-            isLoggedIn: _syncHub.igpLoggedIn,
-            username: _syncHub.igpManager.username,
-            platform: 'igp',
+              isLoggedIn: _syncHub.igpLoggedIn,
+              username: _syncHub.igpManager.username,
+              platform: 'igp',
+            ),
           ),
-        ),
-        if (_syncHub.dataSource != 'igp' && _syncHub.enableIgp) const SizedBox(height: 10),
+        if (_syncHub.dataSource != 'igp' && _syncHub.enableIgp)
+          const SizedBox(height: 10),
         if (_syncHub.dataSource != 'xingzhe' && _syncHub.enableXingzhe)
           _buildThirdPartyActionTile(
             theme,
@@ -464,7 +547,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               platform: 'xingzhe',
             ),
           ),
-        if (_syncHub.dataSource != 'xingzhe' && _syncHub.enableXingzhe) const SizedBox(height: 10),
+        if (_syncHub.dataSource != 'xingzhe' && _syncHub.enableXingzhe)
+          const SizedBox(height: 10),
         if (_syncHub.enableGiant)
           _buildThirdPartyActionTile(
             theme,
@@ -626,9 +710,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         leading: _buildLetterIcon(letter: info.letter, color: info.color),
-        title: Text(info.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          info.name,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         subtitle: Text(
-          info.isLoggedIn ? (info.username ?? S.current.connected) : info.subtitle,
+          info.isLoggedIn
+              ? (info.username ?? S.current.connected)
+              : info.subtitle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -646,11 +735,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 tooltip: '${S.current.syncToPlatform} ${info.name}',
                 onPressed: () => _syncToSinglePlatform(info.platform),
               ),
-            if (!info.isLoggedIn)
-              Icon(
-                Icons.chevron_right,
-                color: theme.iconTheme.color,
+            if (info.isLoggedIn)
+              IconButton(
+                icon: const Icon(Icons.logout_rounded, size: 20),
+                color: Colors.red,
+                tooltip: S.current.logoutTitle(info.name),
+                onPressed: () => _logoutPlatform(info.platform, info.name),
               ),
+            if (!info.isLoggedIn)
+              Icon(Icons.chevron_right, color: theme.iconTheme.color),
           ],
         ),
         onTap: info.isLoggedIn ? null : () => _openLogin(info.platform),
@@ -660,35 +753,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   String _platformDisplayName(String platform) {
     switch (platform) {
-      case 'strava': return S.current.strava;
-      case 'igp': return S.current.igpsport;
-      case 'xingzhe': return S.current.xingzhe;
-      case 'giant': return S.current.giant;
-      case 'garmin': return S.current.garmin;
-      case 'edge_ride': return S.current.edgeRide;
-      default: return platform;
+      case 'strava':
+        return S.current.strava;
+      case 'igp':
+        return S.current.igpsport;
+      case 'xingzhe':
+        return S.current.xingzhe;
+      case 'giant':
+        return S.current.giant;
+      case 'garmin':
+        return S.current.garmin;
+      case 'edge_ride':
+        return S.current.edgeRide;
+      default:
+        return platform;
     }
   }
 
   // 同步到单个平台
   Future<void> _syncToSinglePlatform(String platform) async {
     if (_isUploading) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.uploadingPleaseWait)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.uploadingPleaseWait)));
       return;
     }
     if (_syncHub.isSyncing) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.syncingPleaseWait)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.syncingPleaseWait)));
       return;
     }
 
     if (!_syncHub.isDataSourceLoggedIn) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.dataSourceNotLoggedIn)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.dataSourceNotLoggedIn)));
       return;
     }
 
@@ -704,9 +804,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // 获取最新 FIT 文件（带缓存）
       final result = await _syncHub.getLatestFitFile();
       if (result == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.noNewActivities)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.noNewActivities)));
         return;
       }
 
@@ -715,19 +815,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final fromCache = result['fromCache'] as bool;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(fromCache ? '${S.current.usingCache} $fileName' : '${S.current.downloadComplete} $fileName')),
+        SnackBar(
+          content: Text(
+            fromCache
+                ? '${S.current.usingCache} $fileName'
+                : '${S.current.downloadComplete} $fileName',
+          ),
+        ),
       );
 
       // 只上传到指定平台
       await _syncHub.uploadToSinglePlatform(platform, fitBytes, fileName);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.syncSuccess(displayName, fileName)), backgroundColor: Colors.green),
+        SnackBar(
+          content: Text(S.current.syncSuccess(displayName, fileName)),
+          backgroundColor: Colors.green,
+        ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.syncFailed} $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.syncFailed} $e')));
     } finally {
       setState(() => _isUploading = false);
     }
@@ -903,7 +1012,10 @@ class DashedBorderPainter extends CustomPainter {
     canvas.drawPath(dashedPath, paint);
   }
 
-  Path _dashPath(Path source, {required CircularIntervalList<double> dashArray}) {
+  Path _dashPath(
+    Path source, {
+    required CircularIntervalList<double> dashArray,
+  }) {
     final Path dest = Path();
     for (final ui.PathMetric metric in source.computeMetrics()) {
       double distance = 0.0;
@@ -1012,8 +1124,11 @@ class _LogBottomSheetState extends State<LogBottomSheet> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.article_outlined,
-                        color: theme.iconTheme.color, size: 20),
+                    Icon(
+                      Icons.article_outlined,
+                      color: theme.iconTheme.color,
+                      size: 20,
+                    ),
                     const SizedBox(width: 10),
                     Text(
                       S.current.runningLog,
@@ -1042,7 +1157,9 @@ class _LogBottomSheetState extends State<LogBottomSheet> {
                 : ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     itemCount: _logManager.logs.length,
                     itemBuilder: (context, index) {
                       final log = _logManager.logs[index];
@@ -1068,7 +1185,7 @@ class _LogBottomSheetState extends State<LogBottomSheet> {
                                   color: log.isError
                                       ? theme.colorScheme.error
                                       : theme.textTheme.bodyMedium?.color
-                                          ?.withOpacity(0.8),
+                                            ?.withOpacity(0.8),
                                   fontFamily: 'monospace',
                                   fontSize: 12,
                                   height: 1.5,

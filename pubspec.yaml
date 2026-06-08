@@ -1,7 +1,7 @@
 name: ridefitsync
 description: Auto sync FIT files from OneLap OTM to Strava, iGPSPORT, Xingzhe, and Giant RideLife - by 小悟空
 publish_to: 'none'
-version: 1.1.6+116
+version: 1.1.7+117
 
 environment:
   sdk: ^3.11.0
@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.0
+  http_parser: ^4.0.2
   flutter_secure_storage: ^9.0.0
   fit_tool: ^1.0.5
   archive: ^3.6.0
@@ -49,5 +50,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/club/
     - assets/donate/
     - assets/icon/

@@ -1,6 +1,4 @@
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
-import '../app_storage.dart';
 import '../services/strava_service.dart';
 import '../log_manager.dart';
 
@@ -9,7 +7,6 @@ class StravaManager extends ChangeNotifier {
   factory StravaManager() => _instance;
   StravaManager._internal();
 
-  final _storage = AppStorage();
   final _service = StravaService();
   final _logManager = LogManager();
 
@@ -48,8 +45,8 @@ class StravaManager extends ChangeNotifier {
   }
 
   // 获取授权URL
-  Uri getAuthorizationUrl() {
-    return _service.getAuthorizationUrl();
+  Uri getAuthorizationUrl({bool mobile = true}) {
+    return _service.getAuthorizationUrl(mobile: mobile);
   }
 
   // 处理授权回调
@@ -64,20 +61,27 @@ class StravaManager extends ChangeNotifier {
       return success;
     } catch (e) {
       _logManager.addLog('Strava授权失败: $e', isError: true);
-      return false;
+      rethrow;
     }
   }
 
   // 登出
   Future<void> logout() async {
-    await _service.logout();
+    final deauthorized = await _service.logout();
     _athleteName = null;
-    _logManager.addLog('Strava已登出');
+    _logManager.addLog(deauthorized ? 'Strava已撤销授权并登出' : 'Strava已清除本地授权');
     notifyListeners();
   }
 
   // 上传FIT文件
-  Future<String> uploadFitFile(Uint8List fitBytes, String fileName, {String? sportType}) async {
+  Future<String> uploadFitFile(
+    Uint8List fitBytes,
+    String fileName, {
+    String? sportType,
+    String? activityName,
+    String? description,
+    String? externalId,
+  }) async {
     if (!_service.isAuthenticated) {
       throw Exception('Strava未授权');
     }
@@ -87,7 +91,14 @@ class StravaManager extends ChangeNotifier {
 
     try {
       _logManager.addLog('上传到Strava: $fileName');
-      final result = await _service.uploadFitFile(fitBytes, fileName, sportType: sportType);
+      final result = await _service.uploadFitFile(
+        fitBytes,
+        fileName,
+        sportType: sportType,
+        activityName: activityName,
+        description: description,
+        externalId: externalId,
+      );
       _logManager.addLog('Strava上传成功: $result');
       return result;
     } finally {

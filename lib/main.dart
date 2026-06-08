@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'sync_hub.dart';
 import 'log_manager.dart';
 import 'managers/locale_manager.dart';
+import 'managers/theme_manager.dart';
 import 'l10n/strings.dart';
 import 'pages/home_page.dart';
 import 'services/notification_service.dart';
@@ -24,6 +25,7 @@ class AutoFit2StravaApp extends StatefulWidget {
 class _AutoFit2StravaAppState extends State<AutoFit2StravaApp> {
   final _syncHub = SyncHub();
   final _localeManager = LocaleManager();
+  final _themeManager = ThemeManager();
   bool _isInitialized = false;
 
   @override
@@ -68,7 +70,7 @@ class _AutoFit2StravaAppState extends State<AutoFit2StravaApp> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _localeManager,
+      listenable: Listenable.merge([_localeManager, _themeManager]),
       builder: (context, _) {
         S.setLocale(_localeManager.isZh);
         return _LocaleScope(
@@ -79,7 +81,7 @@ class _AutoFit2StravaAppState extends State<AutoFit2StravaApp> {
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: ThemeMode.system,
+            themeMode: _themeManager.themeMode,
             home: _isInitialized ? const HomePage() : const LoadingPage(),
           ),
         );
@@ -92,13 +94,11 @@ class _AutoFit2StravaAppState extends State<AutoFit2StravaApp> {
 class _LocaleScope extends InheritedWidget {
   final bool isZh;
 
-  const _LocaleScope({
-    required this.isZh,
-    required super.child,
-  });
+  const _LocaleScope({required this.isZh, required super.child});
 
   @override
-  bool updateShouldNotify(covariant _LocaleScope oldWidget) => isZh != oldWidget.isZh;
+  bool updateShouldNotify(covariant _LocaleScope oldWidget) =>
+      isZh != oldWidget.isZh;
 }
 
 class LoadingPage extends StatelessWidget {
@@ -119,11 +119,7 @@ class LoadingPage extends StatelessWidget {
                   shape: BoxShape.circle,
                   color: AppTheme.accent.withOpacity(0.15),
                 ),
-                child: const Icon(
-                  Icons.sync,
-                  size: 64,
-                  color: AppTheme.accent,
-                ),
+                child: const Icon(Icons.sync, size: 64, color: AppTheme.accent),
               ),
               const SizedBox(height: 24),
               const Text(

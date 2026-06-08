@@ -21,7 +21,6 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
   bool _isSending = false;
   int _countdown = 0;
   Timer? _timer;
-  String? _phoneSent;
 
   @override
   void dispose() {
@@ -52,15 +51,15 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
   Future<void> _sendCode() async {
     final phone = _phoneController.text.trim();
     if (phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.invalidPhone)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.invalidPhone)));
       return;
     }
     if (phone.length != 11 || !RegExp(r'^\d+$').hasMatch(phone)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.invalidPhone)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.invalidPhone)));
       return;
     }
 
@@ -71,21 +70,20 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
       if (!mounted) return;
 
       if (success) {
-        _phoneSent = phone;
         _startCountdown();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${S.current.codeSent} $phone')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('${S.current.codeSent} $phone')));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.codeSendFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.codeSendFailed)));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.loginError}: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.loginError}: $e')));
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -96,15 +94,15 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
     final code = _codeController.text.trim();
 
     if (phone.isEmpty || code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.enterPhoneAndCode)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.enterPhoneAndCode)));
       return;
     }
     if (code.length < 4) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.invalidCode)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.invalidCode)));
       return;
     }
 
@@ -121,15 +119,15 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
         );
         Navigator.pop(context, true);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.loginFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.loginFailed)));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.loginError}: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.loginError}: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -137,13 +135,12 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: Text('EdgeRide ${S.current.login}'),
-      ),
+      backgroundColor: colorScheme.surface,
+      appBar: AppBar(title: Text('EdgeRide ${S.current.login}')),
       body: Container(
-        decoration: AppTheme.backgroundGradient,
+        decoration: AppTheme.loginBackgroundFor(context),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -159,11 +156,9 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
-                  color: Colors.white.withOpacity(0.6),
+                  color: colorScheme.onSurfaceVariant,
                 ),
-              )
-                  .animate()
-                  .fadeIn(duration: 400.ms, delay: 200.ms),
+              ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
               const SizedBox(height: 32),
               _buildLoginForm()
                   .animate()
@@ -175,7 +170,7 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.white.withOpacity(0.35),
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ).animate().fadeIn(duration: 400.ms, delay: 600.ms),
             ],
@@ -208,6 +203,7 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
   }
 
   Widget _buildLoginForm() {
+    final colorScheme = Theme.of(context).colorScheme;
     return GlassCard(
       padding: const EdgeInsets.all(24),
       opacity: 0.1,
@@ -224,7 +220,7 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
             ),
             keyboardType: TextInputType.phone,
             textInputAction: TextInputAction.next,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: colorScheme.onSurface),
             maxLength: 11,
           ),
           const SizedBox(height: 12),
@@ -242,7 +238,7 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
                   ),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.done,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: colorScheme.onSurface),
                   onSubmitted: (_) => _login(),
                 ),
               ),
@@ -254,7 +250,9 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
                   onPressed: (_countdown > 0 || _isSending) ? null : _sendCode,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF00C853),
-                    disabledBackgroundColor: Colors.white12,
+                    disabledBackgroundColor: colorScheme.onSurface.withOpacity(
+                      0.12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -270,7 +268,9 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
                           ),
                         )
                       : Text(
-                          _countdown > 0 ? '${_countdown}s' : S.current.sendCode,
+                          _countdown > 0
+                              ? '${_countdown}s'
+                              : S.current.sendCode,
                           style: const TextStyle(fontSize: 13),
                         ),
                 ),
@@ -283,10 +283,7 @@ class _EdgeRideLoginPageState extends State<EdgeRideLoginPage> {
             height: 52,
             child: GradientButton(
               onPressed: _isLoading ? null : _login,
-              colors: const [
-                Color(0xFF00C853),
-                Color(0xFF69F0AE),
-              ],
+              colors: const [Color(0xFF00C853), Color(0xFF69F0AE)],
               child: _isLoading
                   ? const SizedBox(
                       width: 22,

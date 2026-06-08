@@ -34,10 +34,11 @@ class OneLapService {
 
   bool get isLoggedIn => _token != null;
 
-  /// 构建认证请求头，支持 JWT token 和 Cookie 两种模式
-  Map<String, String> _authHeaders() {
+  /// 构建认证请求头
+  /// OTM API (otm.onelap.cn) 只接受 Authorization 头，不接受 Cookie
+  Map<String, String> _authHeaders({bool otmApi = true}) {
     if (_token == null) return {};
-    if (_useCookieAuth) {
+    if (!otmApi && _useCookieAuth) {
       return {'Cookie': 'onelap_web_session=$_token'};
     }
     return {'Authorization': _token!};
@@ -135,8 +136,7 @@ class OneLapService {
     }
   }
 
-  /// 获取活动列表
-  /// 参考 running_page/onelap_sync.py 的活动列表获取
+  /// 获取活动列表（带重试）
   Future<List<Map<String, dynamic>>> getActivities(DateTime? lastSyncDate) async {
     if (_token == null) throw Exception('Not logged in');
 
@@ -145,23 +145,26 @@ class OneLapService {
       lastFormattedDate = lastSyncDate.toIso8601String().split("T").first;
     }
 
-    // 方式1：使用 otm.onelap.cn API（参考 ref/strava_auto2）
+    // 分页获取活动列表
     List<Map<String, dynamic>> activities = [];
     bool hasMore = true;
     int page = 1;
 
     while (hasMore) {
-      final response = await AppHttpClient.post(
-        Uri.parse(_activityListUrl),
-        headers: {
-          ..._authHeaders(),
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          "page": page,
-          "limit": 20,
-          if (lastFormattedDate.isNotEmpty) "start_date": lastFormattedDate,
-        }),
+      final response = await _retryRequest(
+        () => AppHttpClient.post(
+          Uri.parse(_activityListUrl),
+          headers: {
+            ..._authHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            "page": page,
+            "limit": 20,
+            if (lastFormattedDate.isNotEmpty) "start_date": lastFormattedDate,
+          }),
+        ),
+        '获取活动列表(page=$page)',
       );
 
       if (response.statusCode == 200) {
@@ -179,24 +182,48 @@ class OneLapService {
       }
     }
 
-    // 获取每个活动的 fileKey
+    // 获取每个活动的 fileKey（隔 200ms 防止请求过快）
     for (var activity in activities) {
-      final response = await AppHttpClient.get(
-        Uri.parse(_activityListDetailUrl + activity['id'].toString()),
-        headers: _authHeaders(),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is Map && data.containsKey('data')) {
-          final detail = data['data']["ridingRecord"];
-          if (detail != null && detail['fileKey'] != null) {
-            activity['fileKey'] = detail['fileKey'];
+      try {
+        await Future.delayed(const Duration(milliseconds: 200));
+        final response = await AppHttpClient.get(
+          Uri.parse(_activityListDetailUrl + activity['id'].toString()),
+          headers: _authHeaders(),
+        );
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data is Map && data.containsKey('data')) {
+            final detail = data['data']["ridingRecord"];
+            if (detail != null && detail['fileKey'] != null) {
+              activity['fileKey'] = detail['fileKey'];
+            }
           }
         }
+      } catch (e) {
+        // 单个活动详情获取失败不影响其他活动
       }
     }
 
     return activities;
+  }
+
+  /// 带重试的请求（5xx 错误重试最多 3 次）
+  Future<http.Response> _retryRequest(
+    Future<http.Response> Function() request,
+    String label,
+  ) async {
+    const maxRetries = 3;
+    for (int i = 0; i < maxRetries; i++) {
+      final response = await request();
+      if (response.statusCode >= 500 && response.statusCode < 600) {
+        if (i < maxRetries - 1) {
+          await Future.delayed(Duration(seconds: (i + 1) * 3)); // 3s, 6s 退避
+          continue;
+        }
+      }
+      return response;
+    }
+    throw Exception('$label 请求失败: 服务器错误，已重试 $maxRetries 次');
   }
 
   /// 下载FIT文件

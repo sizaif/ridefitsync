@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../sync_hub.dart';
 import '../app_storage.dart';
-import '../theme/app_theme.dart';
 import '../l10n/strings.dart';
+import 'sync_records_page.dart';
 
 const _orange = Color(0xFFFC4C02);
 
@@ -19,9 +18,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   final _storage = AppStorage();
 
   bool _autoSync = false;
-  bool _fixCoordinates = true;
+  bool _activityDesc = true;
   bool _forceSync = false;
-  int _syncInterval = 30;
+  int _syncInterval = 120;
+  String _timeRange = 'all';
 
   @override
   void initState() {
@@ -30,13 +30,14 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   }
 
   Future<void> _loadSettings() async {
-    final fixCoords = await _storage.readBoolPrefs(key: 'fix_coordinates', defaultValue: true);
     final forceSync = await _storage.readBoolPrefs(key: 'force_sync', defaultValue: false);
+    final activityDesc = await _storage.readBoolPrefs(key: 'activity_description', defaultValue: true);
     setState(() {
       _autoSync = _syncHub.autoSyncEnabled;
-      _fixCoordinates = fixCoords;
+      _activityDesc = activityDesc;
       _forceSync = forceSync;
       _syncInterval = _syncHub.syncIntervalMinutes;
+      _timeRange = _syncHub.activityTimeRange;
     });
   }
 
@@ -69,15 +70,15 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             clipBehavior: Clip.antiAlias,
             child: SwitchListTile(
               secondary: Icon(
-                _fixCoordinates ? Icons.gps_fixed : Icons.gps_not_fixed,
+                _activityDesc ? Icons.analytics : Icons.analytics_outlined,
                 color: _orange,
               ),
-              title: const Text('坐标纠偏'),
-              subtitle: const Text('GCJ-02 → WGS-84 (中国坐标修正)'),
-              value: _fixCoordinates,
+              title: const Text('数据分析描述'),
+              subtitle: const Text('上传 Strava 时自动生成运动数据分析描述'),
+              value: _activityDesc,
               onChanged: (value) {
-                setState(() => _fixCoordinates = value);
-                _syncHub.setFixCoordinates(value);
+                setState(() => _activityDesc = value);
+                _syncHub.setEnableActivityDescription(value);
               },
             ),
           ),
@@ -90,6 +91,17 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               subtitle: Text('每 $_syncInterval 分钟'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showIntervalPicker(context),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+              leading: const Icon(Icons.date_range_outlined, color: _orange),
+              title: const Text('活动时间范围'),
+              subtitle: Text(_timeRangeLabel(_timeRange)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showTimeRangePicker(context),
             ),
           ),
           const SizedBox(height: 10),
@@ -117,7 +129,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               title: const Text('清除同步记录'),
               subtitle: Text('已记录 ${_syncHub.syncRecordCount} 条同步状态'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => _showClearRecordsDialog(context),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SyncRecordsPage()),
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -243,35 +258,47 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
   }
 
-  void _showClearRecordsDialog(BuildContext context) {
+  String _timeRangeLabel(String range) {
+    switch (range) {
+      case 'today': return '今天';
+      case '3days': return '近 3 天';
+      case 'week': return '近一周';
+      case 'month': return '近一个月';
+      default: return '全部活动';
+    }
+  }
+
+  void _showTimeRangePicker(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('清除同步记录'),
-        content: Text('确定要清除所有同步记录吗？\n\n'
-            '当前共有 ${_syncHub.syncRecordCount} 条记录。\n'
-            '清除后，所有活动将被重新同步。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await _syncHub.clearSyncRecords();
-              Navigator.pop(ctx);
-              setState(() {});
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('同步记录已清除')),
-                );
-              }
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('清除'),
-          ),
-        ],
+        title: const Text('活动时间范围'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            {'value': 'all', 'label': '全部活动'},
+            {'value': 'today', 'label': '今天'},
+            {'value': '3days', 'label': '近 3 天'},
+            {'value': 'week', 'label': '近一周'},
+            {'value': 'month', 'label': '近一个月'},
+          ].map((item) {
+            return RadioListTile<String>(
+              title: Text(item['label']!),
+              value: item['value']!,
+              groupValue: _timeRange,
+              activeColor: _orange,
+              onChanged: (v) {
+                if (v != null) {
+                  setState(() => _timeRange = v);
+                  _syncHub.setActivityTimeRange(v);
+                  Navigator.pop(ctx);
+                }
+              },
+            );
+          }).toList(),
+        ),
       ),
     );
   }
+
 }

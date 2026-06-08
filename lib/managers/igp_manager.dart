@@ -52,11 +52,7 @@ class IGPManager extends ChangeNotifier {
       final lastSyncTime = int.tryParse(lastSyncTimeStr);
       if (lastSyncTime != null && lastSyncTime > 0) {
         _lastSyncDate = DateTime.fromMillisecondsSinceEpoch(lastSyncTime * 1000);
-      } else {
-        _lastSyncDate = DateTime.now();
       }
-    } else {
-      _lastSyncDate = DateTime.now();
     }
   }
 
@@ -172,6 +168,7 @@ class IGPManager extends ChangeNotifier {
     _token = null;
     _refreshToken = null;
     _tokenExp = null;
+    _service.token = null;
     _logManager.addLog('iGPSPORT已登出');
     notifyListeners();
   }
@@ -234,13 +231,13 @@ class IGPManager extends ChangeNotifier {
   }
 
   // 获取活动列表（用于下载）
-  Future<List<Map<String, dynamic>>> getActivities() async {
+  Future<List<Map<String, dynamic>>> getActivities({DateTime? startDate}) async {
     if (!await checkAndLogin()) {
       throw Exception('iGPSPORT未登录');
     }
 
     _logManager.addLog('获取iGPSPORT活动列表...');
-    final activities = await _service.getActivities(_lastSyncDate);
+    final activities = await _service.getActivities(startDate ?? _lastSyncDate);
     _logManager.addLog('获取到 ${activities.length} 个iGPSPORT活动');
     return activities;
   }

@@ -35,7 +35,7 @@ class IGPService {
   bool _keysFetched = false;
 
   String? _token;
-  set token(String value) {
+  set token(String? value) {
     _token = value;
   }
 

@@ -74,26 +74,23 @@ class _SharedFilePageState extends State<SharedFilePage> {
         return;
       }
 
-      // 坐标纠偏
-      if (_syncHub.fixCoordinates) {
-        final ext = fileName.split('.').last.toLowerCase();
-        if (['fit', 'gpx', 'tcx'].contains(ext)) {
-          setState(() => _status = '正在坐标纠偏...');
-          try {
-            bytes = await CoordFixer.processFile(bytes, ext);
-            // 记录坐标检测结果
-            final detectionResult = CoordFixer.lastDetectionResult;
-            final sampleCount = CoordFixer.lastSampleCount;
-            if (detectionResult == true) {
-              _logManager.addLog('坐标检测: WGS-84 (无需纠正, 样本数: $sampleCount)');
-            } else if (detectionResult == false) {
-              _logManager.addLog('坐标检测: GCJ-02 (已纠正为 WGS-84, 样本数: $sampleCount)');
-            } else {
-              _logManager.addLog('坐标检测: 无坐标数据');
-            }
-          } catch (e) {
-            _logManager.addLog('坐标纠偏失败: $e', isError: true);
+      // 坐标纠偏：直接上传的文件默认按 GCJ→WGS 处理
+      final ext = fileName.split('.').last.toLowerCase();
+      if (['fit', 'gpx', 'tcx'].contains(ext)) {
+        setState(() => _status = '正在坐标纠偏...');
+        try {
+          bytes = await CoordFixer.processFile(bytes, ext, CoordDirection.gcj2wgs);
+          final detectionResult = CoordFixer.lastDetectionResult;
+          final sampleCount = CoordFixer.lastSampleCount;
+          if (detectionResult == true) {
+            _logManager.addLog('坐标检测: WGS-84 (无需纠正, 样本数: $sampleCount)');
+          } else if (detectionResult == false) {
+            _logManager.addLog('坐标检测: GCJ-02 (已纠正为 WGS-84, 样本数: $sampleCount)');
+          } else {
+            _logManager.addLog('坐标检测: 无坐标数据');
           }
+        } catch (e) {
+          _logManager.addLog('坐标纠偏失败: $e', isError: true);
         }
       }
 

@@ -69,11 +69,13 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
 
   Future<void> _sendCode() async {
     final phone = _phoneController.text.trim();
-    if (phone.isEmpty || phone.length != 11 || !RegExp(r'^\d+$').hasMatch(phone)) {
+    if (phone.isEmpty ||
+        phone.length != 11 ||
+        !RegExp(r'^\d+$').hasMatch(phone)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.invalidPhone)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.invalidPhone)));
       }
       return;
     }
@@ -84,19 +86,19 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
       if (!mounted) return;
       if (success) {
         _startCountdown();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${S.current.codeSent} $phone')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('${S.current.codeSent} $phone')));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.codeSendFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.codeSendFailed)));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.loginError}: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.loginError}: $e')));
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -119,9 +121,9 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
         }
         if (code.length < 4) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(S.current.invalidCode)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(S.current.invalidCode)));
           }
           return;
         }
@@ -143,19 +145,21 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
       if (!mounted) return;
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${S.current.xingzhe} ${S.current.loginSuccess}')),
+          SnackBar(
+            content: Text('${S.current.xingzhe} ${S.current.loginSuccess}'),
+          ),
         );
         Navigator.pop(context, true);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.loginFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.loginFailed)));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.loginError}: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.loginError}: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -163,31 +167,42 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(title: Text('${S.current.xingzhe} ${S.current.login}')),
       body: Container(
-        decoration: AppTheme.backgroundGradient,
+        decoration: AppTheme.loginBackgroundFor(context),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
               const SizedBox(height: 20),
               _buildBrandIcon()
-                  .animate().fadeIn(duration: 500.ms).scale(begin: const Offset(0.8, 0.8)),
+                  .animate()
+                  .fadeIn(duration: 500.ms)
+                  .scale(begin: const Offset(0.8, 0.8)),
               const SizedBox(height: 24),
               Text(
                 _isSmsMode
                     ? '${S.current.login} ${S.current.xingzhe}\n${S.current.enterPhoneAndCode}'
                     : '${S.current.login} ${S.current.xingzhe}\n${S.current.enterUsernamePassword}',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, color: Colors.white.withOpacity(0.6)),
+                style: TextStyle(
+                  fontSize: 15,
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
               const SizedBox(height: 32),
-              _buildLoginModeSwitch().animate().fadeIn(duration: 400.ms, delay: 250.ms),
+              _buildLoginModeSwitch().animate().fadeIn(
+                duration: 400.ms,
+                delay: 250.ms,
+              ),
               const SizedBox(height: 16),
               _buildLoginForm()
-                  .animate().fadeIn(duration: 500.ms, delay: 300.ms).slideY(begin: 0.15, end: 0),
+                  .animate()
+                  .fadeIn(duration: 500.ms, delay: 300.ms)
+                  .slideY(begin: 0.15, end: 0),
             ],
           ),
         ),
@@ -209,11 +224,16 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
           ),
         ],
       ),
-      child: const Icon(Icons.map_rounded, size: 56, color: AppTheme.xingzheColor),
+      child: const Icon(
+        Icons.map_rounded,
+        size: 56,
+        color: AppTheme.xingzheColor,
+      ),
     );
   }
 
   Widget _buildLoginModeSwitch() {
+    final colorScheme = Theme.of(context).colorScheme;
     return GlassCard(
       padding: const EdgeInsets.all(4),
       opacity: 0.1,
@@ -225,18 +245,33 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: !_isSmsMode ? AppTheme.xingzheColor.withOpacity(0.3) : Colors.transparent,
+                  color: !_isSmsMode
+                      ? AppTheme.xingzheColor.withOpacity(0.18)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.lock_outline, size: 18, color: !_isSmsMode ? Colors.white : Colors.white54),
+                    Icon(
+                      Icons.lock_outline,
+                      size: 18,
+                      color: !_isSmsMode
+                          ? AppTheme.xingzheColor
+                          : colorScheme.onSurfaceVariant,
+                    ),
                     const SizedBox(width: 8),
-                    Text(S.current.passwordLogin, style: TextStyle(
-                      color: !_isSmsMode ? Colors.white : Colors.white54,
-                      fontWeight: !_isSmsMode ? FontWeight.bold : FontWeight.normal,
-                    )),
+                    Text(
+                      S.current.passwordLogin,
+                      style: TextStyle(
+                        color: !_isSmsMode
+                            ? AppTheme.xingzheColor
+                            : colorScheme.onSurfaceVariant,
+                        fontWeight: !_isSmsMode
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -248,18 +283,33 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: _isSmsMode ? AppTheme.xingzheColor.withOpacity(0.3) : Colors.transparent,
+                  color: _isSmsMode
+                      ? AppTheme.xingzheColor.withOpacity(0.18)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.sms_outlined, size: 18, color: _isSmsMode ? Colors.white : Colors.white54),
+                    Icon(
+                      Icons.sms_outlined,
+                      size: 18,
+                      color: _isSmsMode
+                          ? AppTheme.xingzheColor
+                          : colorScheme.onSurfaceVariant,
+                    ),
                     const SizedBox(width: 8),
-                    Text(S.current.smsLogin, style: TextStyle(
-                      color: _isSmsMode ? Colors.white : Colors.white54,
-                      fontWeight: _isSmsMode ? FontWeight.bold : FontWeight.normal,
-                    )),
+                    Text(
+                      S.current.smsLogin,
+                      style: TextStyle(
+                        color: _isSmsMode
+                            ? AppTheme.xingzheColor
+                            : colorScheme.onSurfaceVariant,
+                        fontWeight: _isSmsMode
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -271,6 +321,7 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
   }
 
   Widget _buildLoginForm() {
+    final colorScheme = Theme.of(context).colorScheme;
     return GlassCard(
       padding: const EdgeInsets.all(24),
       opacity: 0.1,
@@ -287,7 +338,7 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
               ),
               keyboardType: TextInputType.text,
               textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: colorScheme.onSurface),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -297,13 +348,17 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
                 prefixIcon: const Icon(Icons.lock_outline),
                 hintText: S.current.password,
                 suffixIcon: IconButton(
-                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
               obscureText: _obscurePassword,
               textInputAction: TextInputAction.done,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: colorScheme.onSurface),
               onSubmitted: (_) => _login(),
             ),
           ] else ...[
@@ -316,7 +371,7 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
               ),
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: colorScheme.onSurface),
               maxLength: 11,
             ),
             const SizedBox(height: 12),
@@ -333,7 +388,7 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
                     ),
                     keyboardType: TextInputType.number,
                     textInputAction: TextInputAction.done,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: colorScheme.onSurface),
                     onSubmitted: (_) => _login(),
                   ),
                 ),
@@ -342,16 +397,33 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
                   height: 56,
                   width: 110,
                   child: ElevatedButton(
-                    onPressed: (_countdown > 0 || _isSending) ? null : _sendCode,
+                    onPressed: (_countdown > 0 || _isSending)
+                        ? null
+                        : _sendCode,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.xingzheColor,
-                      disabledBackgroundColor: Colors.white12,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      disabledBackgroundColor: colorScheme.onSurface
+                          .withOpacity(0.12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       padding: EdgeInsets.zero,
                     ),
                     child: _isSending
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : Text(_countdown > 0 ? '${_countdown}s' : S.current.sendCode, style: const TextStyle(fontSize: 13)),
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            _countdown > 0
+                                ? '${_countdown}s'
+                                : S.current.sendCode,
+                            style: const TextStyle(fontSize: 13),
+                          ),
                   ),
                 ),
               ],
@@ -362,9 +434,19 @@ class _XingzheLoginPageState extends State<XingzheLoginPage> {
             height: 52,
             child: GradientButton(
               onPressed: _isLoading ? null : _login,
-              colors: [AppTheme.xingzheColor, AppTheme.xingzheColor.withOpacity(0.7)],
+              colors: [
+                AppTheme.xingzheColor,
+                AppTheme.xingzheColor.withOpacity(0.7),
+              ],
               child: _isLoading
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white,
+                      ),
+                    )
                   : Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [

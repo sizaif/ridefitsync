@@ -16,7 +16,7 @@ class PasswordLoginPage extends StatefulWidget {
   final String? initialUsername;
   final Future<bool> Function(String username, String password) onLogin;
   final Future<void> Function()? onTestConnection;
-  final Widget? additionalActions;  // 额外操作按钮（如"网页登录"）
+  final Widget? additionalActions; // 额外操作按钮（如"网页登录"）
 
   const PasswordLoginPage({
     super.key,
@@ -52,8 +52,7 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
   }
 
   Future<void> _login() async {
-    if (_usernameController.text.isEmpty ||
-        _passwordController.text.isEmpty) {
+    if (_usernameController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(S.current.enterUsernameAndPassword)),
       );
@@ -71,20 +70,20 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
       if (!mounted) return;
 
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.loginSuccess)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.loginSuccess)));
         Navigator.pop(context, true);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.loginFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.loginFailed)));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.loginError} $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.loginError} $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -92,54 +91,46 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
+      backgroundColor: colorScheme.surface,
+      appBar: AppBar(title: Text(widget.title)),
       body: Container(
-        decoration: AppTheme.backgroundGradient,
+        decoration: AppTheme.loginBackgroundFor(context),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
               const SizedBox(height: 20),
-              // 品牌图标 + 光晕
               _buildBrandIcon()
                   .animate()
                   .fadeIn(duration: 500.ms)
                   .scale(begin: const Offset(0.8, 0.8)),
               const SizedBox(height: 24),
-              // 说明文字
               Text(
                 widget.subtitle,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
-                  color: Colors.white.withOpacity(0.6),
+                  color: colorScheme.onSurfaceVariant,
                 ),
-              )
-                  .animate()
-                  .fadeIn(duration: 400.ms, delay: 200.ms),
+              ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
               const SizedBox(height: 32),
-              // 登录表单卡片
               _buildLoginForm()
                   .animate()
                   .fadeIn(duration: 500.ms, delay: 300.ms)
                   .slideY(begin: 0.15, end: 0),
-              // 额外操作（如网页登录入口）
               if (widget.additionalActions != null) ...[
                 const SizedBox(height: 16),
                 widget.additionalActions!,
               ],
               const SizedBox(height: 24),
-              // 提示文字
               Text(
                 S.current.loginWillAutoSync,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.white.withOpacity(0.35),
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ).animate().fadeIn(duration: 400.ms, delay: 600.ms),
             ],
@@ -163,15 +154,12 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
           ),
         ],
       ),
-      child: Icon(
-        widget.icon,
-        size: 56,
-        color: widget.brandColor,
-      ),
+      child: Icon(widget.icon, size: 56, color: widget.brandColor),
     );
   }
 
   Widget _buildLoginForm() {
+    final colorScheme = Theme.of(context).colorScheme;
     return GlassCard(
       padding: const EdgeInsets.all(24),
       opacity: 0.1,
@@ -187,7 +175,7 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
             ),
             keyboardType: widget.usernameKeyboardType,
             textInputAction: TextInputAction.next,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: colorScheme.onSurface),
           ),
           const SizedBox(height: 16),
           // 密码输入框
@@ -201,7 +189,7 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
                   _obscurePassword
                       ? Icons.visibility_outlined
                       : Icons.visibility_off_outlined,
-                  color: Colors.white38,
+                  color: colorScheme.onSurfaceVariant,
                 ),
                 onPressed: () {
                   setState(() => _obscurePassword = !_obscurePassword);
@@ -211,7 +199,7 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
             obscureText: _obscurePassword,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _login(),
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: colorScheme.onSurface),
           ),
           const SizedBox(height: 28),
           // 登录按钮
@@ -219,10 +207,7 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
             height: 52,
             child: GradientButton(
               onPressed: _isLoading ? null : _login,
-              colors: [
-                widget.brandColor,
-                widget.brandColor.withOpacity(0.7),
-              ],
+              colors: [widget.brandColor, widget.brandColor.withOpacity(0.7)],
               child: _isLoading
                   ? const SizedBox(
                       width: 22,
@@ -250,7 +235,7 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
               icon: const Icon(Icons.wifi_find_rounded, size: 18),
               label: const Text('测试网络连接'),
               style: TextButton.styleFrom(
-                foregroundColor: Colors.white54,
+                foregroundColor: colorScheme.onSurfaceVariant,
               ),
             ),
           ],

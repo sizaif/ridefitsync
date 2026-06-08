@@ -11,7 +11,7 @@ class GiantService {
   static const String _uploadUrl = '$_baseUrl/upload_fit';
 
   String? _token;
-  set token(String value) => _token = value;
+  set token(String? value) => _token = value;
 
   bool get isLoggedIn => _token != null;
 

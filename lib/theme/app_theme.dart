@@ -50,10 +50,7 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: Colors.grey.withOpacity(0.1),
-            width: 1,
-          ),
+          side: BorderSide(color: Colors.grey.withOpacity(0.1), width: 1),
         ),
         color: Colors.white,
       ),
@@ -66,10 +63,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
       dividerTheme: DividerThemeData(
@@ -78,9 +72,7 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -110,10 +102,7 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: Colors.white.withOpacity(0.1),
-            width: 1,
-          ),
+          side: BorderSide(color: Colors.white.withOpacity(0.1), width: 1),
         ),
         color: const Color(0xFF1E1E1E),
       ),
@@ -126,10 +115,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
       dividerTheme: DividerThemeData(
@@ -138,9 +124,7 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -152,6 +136,31 @@ class AppTheme {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [Color(0xFF0F0C29), Color(0xFF302B63), Color(0xFF24243E)],
+      ),
+    );
+  }
+
+  /// 登录页浅色背景
+  static BoxDecoration get loginBackground {
+    return const BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFFFFFFFF), Color(0xFFF4F6F8)],
+      ),
+    );
+  }
+
+  static BoxDecoration loginBackgroundFor(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = colorScheme.brightness == Brightness.dark;
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: isDark
+            ? [colorScheme.surface, colorScheme.surfaceContainerLowest]
+            : [Colors.white, const Color(0xFFF4F6F8)],
       ),
     );
   }

@@ -9,7 +9,10 @@ import 'login_pages/garmin_login.dart';
 import 'login_pages/edge_ride_login.dart';
 import 'sync_settings_page.dart';
 import 'donate_page.dart';
+import 'sync_records_page.dart';
+import 'club_intro_page.dart';
 import '../managers/locale_manager.dart';
+import '../managers/theme_manager.dart';
 import '../l10n/strings.dart';
 import '../upgrader.dart';
 
@@ -25,6 +28,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _syncHub = SyncHub();
   final _localeManager = LocaleManager();
+  final _themeManager = ThemeManager();
   String _version = '';
 
   @override
@@ -32,6 +36,7 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _syncHub.addListener(_onSyncHubChanged);
     _localeManager.addListener(_onSyncHubChanged);
+    _themeManager.addListener(_onSyncHubChanged);
     _loadVersion();
   }
 
@@ -44,6 +49,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _syncHub.removeListener(_onSyncHubChanged);
     _localeManager.removeListener(_onSyncHubChanged);
+    _themeManager.removeListener(_onSyncHubChanged);
     super.dispose();
   }
 
@@ -60,10 +66,16 @@ class _SettingsPageState extends State<SettingsPage> {
         title: Text(S.current.logoutTitle(name)),
         content: Text(S.current.logoutConfirm(name)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.current.cancel)),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(S.current.cancel),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(S.current.logout, style: const TextStyle(color: Colors.red)),
+            child: Text(
+              S.current.logout,
+              style: const TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
@@ -71,19 +83,33 @@ class _SettingsPageState extends State<SettingsPage> {
     if (confirm != true) return;
 
     switch (platform) {
-      case 'onelap': await _syncHub.onelapManager.logout(); break;
-      case 'strava': await _syncHub.stravaManager.logout(); break;
-      case 'igp': await _syncHub.igpManager.logout(); break;
-      case 'xingzhe': await _syncHub.xingzheManager.logout(); break;
-      case 'giant': await _syncHub.giantManager.logout(); break;
-      case 'garmin': await _syncHub.garminManager.logout(); break;
-      case 'edge_ride': await _syncHub.edgeRideManager.logout(); break;
+      case 'onelap':
+        await _syncHub.onelapManager.logout();
+        break;
+      case 'strava':
+        await _syncHub.stravaManager.logout();
+        break;
+      case 'igp':
+        await _syncHub.igpManager.logout();
+        break;
+      case 'xingzhe':
+        await _syncHub.xingzheManager.logout();
+        break;
+      case 'giant':
+        await _syncHub.giantManager.logout();
+        break;
+      case 'garmin':
+        await _syncHub.garminManager.logout();
+        break;
+      case 'edge_ride':
+        await _syncHub.edgeRideManager.logout();
+        break;
     }
     if (mounted) {
       setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.loggedOut(name))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.loggedOut(name))));
     }
   }
 
@@ -174,6 +200,7 @@ class _SettingsPageState extends State<SettingsPage> {
             platform: 'garmin',
             isLoggedIn: _syncHub.garminLoggedIn,
             username: _syncHub.garminManager.username,
+            isDisabled: true,
           ),
           const SizedBox(height: 24),
 
@@ -184,7 +211,9 @@ class _SettingsPageState extends State<SettingsPage> {
             letter: 'W',
             color: const Color(0xFF0155FF),
             title: S.current.onelap,
-            subtitle: S.current.platformSubtitle('onelap') != '' ? S.current.platformSubtitle('onelap') : S.current.cyclingActivities,
+            subtitle: S.current.platformSubtitle('onelap') != ''
+                ? S.current.platformSubtitle('onelap')
+                : S.current.cyclingActivities,
             platform: 'onelap',
             isLoggedIn: _syncHub.onelapLoggedIn,
             username: _syncHub.onelapManager.username,
@@ -261,6 +290,7 @@ class _SettingsPageState extends State<SettingsPage> {
             isEnabled: _syncHub.enableGarmin,
             onToggle: (v) => _syncHub.setEnableGarmin(v),
             isSource: _syncHub.dataSource == 'garmin',
+            isDisabled: true,
           ),
           const SizedBox(height: 10),
           _buildUploadTargetTile(
@@ -295,6 +325,20 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 24),
 
+          // === 主题 ===
+          _buildSectionHeader(theme, _themeTitle),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+              leading: const Icon(Icons.palette_outlined, color: _orange),
+              title: Text(_themeTitle),
+              subtitle: Text(_themeModeLabel(_themeManager.themeMode)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showThemeDialog(context),
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // === 语言 ===
           _buildSectionHeader(theme, S.current.language),
           Card(
@@ -305,7 +349,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   leading: const Icon(Icons.language_rounded, color: _orange),
                   title: Text(S.current.chinese),
                   trailing: _localeManager.isZh
-                      ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
+                      ? const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 20,
+                        )
                       : null,
                   onTap: () => _localeManager.setLocale(true),
                 ),
@@ -314,7 +362,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   leading: const Icon(Icons.language_rounded, color: _orange),
                   title: Text(S.current.english),
                   trailing: !_localeManager.isZh
-                      ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
+                      ? const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 20,
+                        )
                       : null,
                   onTap: () => _localeManager.setLocale(false),
                 ),
@@ -337,19 +389,44 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 Divider(height: 1, color: theme.dividerColor),
                 ListTile(
+                  leading: const Icon(Icons.person_rounded, color: _orange),
+                  title: Text(S.current.authorInfo),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ClubIntroPage()),
+                  ),
+                ),
+                Divider(height: 1, color: theme.dividerColor),
+                ListTile(
                   leading: const Icon(Icons.delete_outline, color: _orange),
                   title: Text(S.current.clearCache),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${_syncHub.syncRecordManager.recordCount}',
+                        style: TextStyle(color: theme.hintColor, fontSize: 12),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.chevron_right),
+                    ],
+                  ),
                   onTap: () {
-                    _syncHub.clearCache();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(S.current.cacheCleared)),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SyncRecordsPage(),
+                      ),
                     );
                   },
                 ),
                 Divider(height: 1, color: theme.dividerColor),
                 ListTile(
-                  leading: const Icon(Icons.favorite_rounded, color: Colors.red),
+                  leading: const Icon(
+                    Icons.favorite_rounded,
+                    color: Colors.red,
+                  ),
                   title: Text(S.current.donate),
                   subtitle: Text(S.current.supportDev),
                   trailing: const Icon(Icons.chevron_right),
@@ -393,38 +470,66 @@ class _SettingsPageState extends State<SettingsPage> {
     required String platform,
     required bool isLoggedIn,
     String? username,
+    bool isDisabled = false,
   }) {
     final isSelected = _syncHub.dataSource == platform;
 
-    return Card(
+    Widget tile = Card(
       clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        leading: _buildLetterIcon(letter: letter, color: color),
-        title: Text(title),
-        subtitle: Text(
-          isSelected
-              ? (isLoggedIn ? (username ?? S.current.currentDataSource) : '${S.current.currentDataSource} · ${S.current.clickToLogin}')
-              : (isLoggedIn ? (username ?? S.current.connected) : '$subtitle · ${S.current.needLoginFirst}'),
+      child: Opacity(
+        opacity: isDisabled ? 0.45 : 1.0,
+        child: ListTile(
+          leading: _buildLetterIcon(letter: letter, color: color),
+          title: Text(title),
+          subtitle: Text(
+            isDisabled
+                ? S.current.comingSoon
+                : (isSelected
+                      ? (isLoggedIn
+                            ? (username ?? S.current.currentDataSource)
+                            : '${S.current.currentDataSource} · ${S.current.clickToLogin}')
+                      : (isLoggedIn
+                            ? (username ?? S.current.connected)
+                            : '$subtitle · ${S.current.needLoginFirst}')),
+          ),
+          trailing: isDisabled
+              ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    S.current.comingSoon,
+                    style: TextStyle(
+                      color: theme.hintColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              : Switch(
+                  value: isSelected,
+                  onChanged: (value) async {
+                    if (value) {
+                      _setDataSourceWithLogin(platform);
+                    }
+                  },
+                ),
+          onTap: isDisabled
+              ? null
+              : () {
+                  if (isLoggedIn) {
+                    _syncHub.setDataSource(platform);
+                  } else {
+                    _openLogin(platform);
+                  }
+                },
         ),
-        trailing: Switch(
-          value: isSelected,
-          onChanged: (value) async {
-            if (value) {
-              _setDataSourceWithLogin(platform);
-            }
-          },
-        ),
-        onTap: () {
-          if (isLoggedIn) {
-            // 已登录，切换数据源
-            _syncHub.setDataSource(platform);
-          } else {
-            // 未登录，跳转登录
-            _openLogin(platform);
-          }
-        },
       ),
     );
+
+    return tile;
   }
 
   Future<void> _setDataSourceWithLogin(String platform) async {
@@ -481,42 +586,63 @@ class _SettingsPageState extends State<SettingsPage> {
     required bool isEnabled,
     required ValueChanged<bool> onToggle,
     required bool isSource,
+    bool isDisabled = false,
   }) {
-    final tile = ListTile(
-      leading: _buildLetterIcon(letter: letter, color: color),
-      title: Text(title),
-      subtitle: Text(
-        isSource
-            ? S.current.cannotBeTarget
-            : (isLoggedIn ? (username ?? S.current.connected) : '$subtitle · ${S.current.clickToLogin}'),
-      ),
-      trailing: isSource
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                S.current.dataSource,
-                style: TextStyle(
-                  color: theme.hintColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+    final tile = Opacity(
+      opacity: isDisabled ? 0.45 : 1.0,
+      child: ListTile(
+        leading: _buildLetterIcon(letter: letter, color: color),
+        title: Text(title),
+        subtitle: Text(
+          isDisabled
+              ? S.current.comingSoon
+              : (isSource
+                    ? S.current.cannotBeTarget
+                    : (isLoggedIn
+                          ? (username ?? S.current.connected)
+                          : '$subtitle · ${S.current.clickToLogin}')),
+        ),
+        trailing: isDisabled
+            ? Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-              ),
-            )
-          : Switch(
-              value: isEnabled,
-              onChanged: onToggle,
-            ),
-      onTap: (isSource || isLoggedIn)
-          ? null
-          : () => _openLogin(platform),
+                child: Text(
+                  S.current.comingSoon,
+                  style: TextStyle(
+                    color: theme.hintColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              )
+            : (isSource
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        S.current.dataSource,
+                        style: TextStyle(
+                          color: theme.hintColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  : Switch(value: isEnabled, onChanged: onToggle)),
+        onTap: isDisabled
+            ? null
+            : ((isSource || isLoggedIn) ? null : () => _openLogin(platform)),
+      ),
     );
 
-    // 未登录 → 简单卡片
-    if (!isLoggedIn) {
+    // 未登录或已禁用 → 简单卡片
+    if (!isLoggedIn || isDisabled) {
       return Card(clipBehavior: Clip.antiAlias, child: tile);
     }
 
@@ -557,6 +683,50 @@ class _SettingsPageState extends State<SettingsPage> {
           fontSize: 11,
           fontWeight: FontWeight.bold,
         ),
+      ),
+    );
+  }
+
+  String get _themeTitle => _localeManager.isZh ? '主题' : 'Theme';
+
+  String _themeModeLabel(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return _localeManager.isZh ? '浅色' : 'Light';
+      case ThemeMode.dark:
+        return _localeManager.isZh ? '深色' : 'Dark';
+      case ThemeMode.system:
+        return _localeManager.isZh ? '跟随系统' : 'System';
+    }
+  }
+
+  void _showThemeDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_localeManager.isZh ? '选择主题' : 'Select Theme'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: ThemeMode.values.map((mode) {
+            return RadioListTile<ThemeMode>(
+              title: Text(_themeModeLabel(mode)),
+              value: mode,
+              groupValue: _themeManager.themeMode,
+              activeColor: _orange,
+              onChanged: (value) {
+                if (value == null) return;
+                _themeManager.setThemeMode(value);
+                Navigator.pop(ctx);
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(S.current.cancel),
+          ),
+        ],
       ),
     );
   }

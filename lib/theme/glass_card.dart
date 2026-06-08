@@ -28,6 +28,13 @@ class GlassCard extends StatelessWidget {
     final effectiveBlur = blur ?? AppTheme.glassBlur;
     final effectiveOpacity = opacity ?? AppTheme.glassOpacity;
     final effectiveRadius = borderRadius ?? AppTheme.glassBorderRadius;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final fillColor = isLight
+        ? Colors.white.withOpacity(0.92)
+        : Colors.white.withOpacity(effectiveOpacity);
+    final borderColor = isLight
+        ? Colors.black.withOpacity(0.08)
+        : Colors.white.withOpacity(AppTheme.glassBorderOpacity);
 
     Widget card = ClipRRect(
       borderRadius: BorderRadius.circular(effectiveRadius),
@@ -35,12 +42,9 @@ class GlassCard extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: effectiveBlur, sigmaY: effectiveBlur),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(effectiveOpacity),
+            color: fillColor,
             borderRadius: BorderRadius.circular(effectiveRadius),
-            border: Border.all(
-              color: Colors.white.withOpacity(AppTheme.glassBorderOpacity),
-              width: 1,
-            ),
+            border: Border.all(color: borderColor, width: 1),
           ),
           padding: padding ?? const EdgeInsets.all(16),
           child: child,
@@ -89,9 +93,10 @@ class _GlowContainerState extends State<GlowContainer>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
-    _animation = Tween<double>(begin: 0.3, end: 0.8).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _animation = Tween<double>(
+      begin: 0.3,
+      end: 0.8,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -143,16 +148,14 @@ class GradientButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveColors = colors ??
-        [AppTheme.accent, AppTheme.accent.withOpacity(0.8)];
+    final effectiveColors =
+        colors ?? [AppTheme.accent, AppTheme.accent.withOpacity(0.8)];
     final isEnabled = onPressed != null;
 
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(borderRadius),
-        gradient: isEnabled
-            ? LinearGradient(colors: effectiveColors)
-            : null,
+        gradient: isEnabled ? LinearGradient(colors: effectiveColors) : null,
         color: isEnabled ? null : Colors.white.withOpacity(0.1),
       ),
       child: Material(
@@ -161,7 +164,8 @@ class GradientButton extends StatelessWidget {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(borderRadius),
           child: Padding(
-            padding: padding ??
+            padding:
+                padding ??
                 const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
             child: DefaultTextStyle(
               style: const TextStyle(

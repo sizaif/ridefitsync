@@ -2,17 +2,31 @@
 
 自动从运动平台获取 FIT 文件并同步到多个目标平台。
 
+> 🚴 作者：长安四季骑行俱乐部 #小悟空 | GitHub: [sizaif/ridefitsync](https://github.com/sizaif/ridefitsync)
+
+## v1.1.7 正式版 (2026-06)
+
+首个稳定正式版本，重大更新：
+
+- 🏛️ **长安四季骑行俱乐部介绍页** — 设置页「长安四季#小悟空」入口，可查看俱乐部介绍、加入方式
+- 🔐 **Strava 登录两步流程** — 先保存 API 凭证，再授权；失败不再静默，明确提示错误
+- 🔗 **Deep link 去重** — 修复 Strava 回调重复触发导致 token 交换失败的问题
+- ⏱️ **Strava token 请求超时** — 20s 超时 + 明确网络/VPN 错误提示
+- 🚫 **佳明平台标灰** — 标记"即将上线"，暂不可操作
+- 🎨 **捐赠页 GitHub 链接** — 欢迎 Star ⭐ & Fork 🍴
+- 📋 **俱乐部介绍页全选复制** — 微信号等重点突出可复制
+
 ## 支持平台
 
-| 平台 | 数据源 | 上传目标 | 认证方式 |
-|------|:------:|:----:|----------|
-| 顽鹿 OTM | ✓ |  ✓   | 密码 / 验证码 (WebView + 滑块) |
-| iGPSPORT | ✓ |  ✓   | 密码 / 验证码 + HMAC-SHA256 |
-| 行者 | ✓ |  ✓   | 密码 (RSA) / 验证码 |
-| 佳明 Connect | ✓ |  ✓   | SSO + DI Token |
-| Strava | |  ✓   | OAuth 2.0 |
-| 捷安特 RideLife | |  ✓   | 表单登录 + user_token |
-| EdgeRide | |  ✓   | 验证码 |
+| 平台 | 数据源 | 上传目标 | 认证方式 | 状态 |
+|------|:------:|:----:|----------|:----:|
+| 顽鹿 OTM | ✓ | ✓ | 密码 / 验证码 (WebView + 滑块) | ✅ |
+| iGPSPORT | ✓ | ✓ | 密码 / 验证码 + HMAC-SHA256 | ✅ |
+| 行者 | ✓ | ✓ | 密码 (RSA) / 验证码 | ✅ |
+| Strava | | ✓ | OAuth 2.0（两步：凭证→授权） | ✅ |
+| 捷安特 RideLife | | ✓ | 表单登录 + user_token | ✅ |
+| EdgeRide | | ✓ | 验证码 | ✅ |
+| 佳明 Connect | ✓ | ✓ | SSO + DI Token | 🚧 即将上线 |
 
 ## 快速开始
 
@@ -42,9 +56,9 @@ APK 输出：`build/app/outputs/flutter-apk/app-release.apk`
 使用 git tag 管理版本号，一条命令完成：
 
 ```bash
-./scripts/tag_release.sh 1.3.0    # → pubspec.yaml 自动同步 → git tag v1.3.0
+./scripts/tag_release.sh 1.1.7    # → pubspec.yaml 自动同步 → git tag v1.1.7
 git push origin main
-git push origin v1.3.0             # → GitHub Actions 自动构建 + 发布 APK
+git push origin v1.1.7             # → GitHub Actions 自动构建 + 发布 APK
 ```
 
 设置页显示的版本号从 `pubspec.yaml` 动态读取（`package_info_plus`），无需手动同步。
@@ -91,6 +105,8 @@ lib/
 │   ├── sync_settings_page.dart
 │   ├── shared_file_page.dart
 │   ├── donate_page.dart
+│   ├── club_intro_page.dart       # 长安四季骑行俱乐部
+│   ├── sync_records_page.dart     # 同步记录管理
 │   └── login_pages/
 │       ├── login_template.dart
 │       ├── onelap_login.dart
@@ -98,7 +114,7 @@ lib/
 │       ├── igp_login.dart
 │       ├── xingzhe_login.dart
 │       ├── garmin_login.dart
-│       ├── strava_login.dart
+│       ├── strava_login.dart           # OAuth（两步流程）
 │       ├── giant_login.dart
 │       └── edge_ride_login.dart
 └── theme/                         # Material 3 主题
@@ -149,9 +165,11 @@ lib/
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/oauth/authorize` | GET | 授权 |
+| `/oauth/token` | POST | Token 交换 (20s timeout) |
 | `/api/v3/uploads` | POST | FIT 上传 |
 
 - 认证：OAuth 2.0 (Authorization Code + PKCE)
+- 登录流程：① 保存 Client ID/Secret → ② App 授权 / 网页授权
 
 ### 捷安特 RideLife
 
@@ -162,13 +180,15 @@ lib/
 
 - 认证：`user_token` + `user_id`
 
-### 佳明 Connect（中国）
+### 佳明 Connect（中国）🚧
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/sso/mobile/api/login` | POST | SSO 登录 |
 | `/di-oauth2-service/oauth/token` | POST | Token 交换 |
 | `connectapi.garmin.cn` | - | 活动列表 / 下载 / 上传 |
+
+> 佳明平台尚未完成开发，设置页已标灰禁用
 
 ### EdgeRide
 
@@ -177,6 +197,13 @@ lib/
 | `/edge/user/login/webSendRegSMS` | POST | 发送验证码 |
 | `/edge/user/login/loginByVerifyCodeByWeb` | POST | 验证码登录 |
 | `/edge/user/bind/webUploadFit` | POST | FIT 上传 |
+
+## 长安四季骑行俱乐部
+
+由西安骑行爱好者组成的俱乐部，详情见 App 内设置页 →「长安四季#小悟空」→ 俱乐部介绍页。
+
+> 📱 微信：wzj19791116qy（注明来意）
+> 🕐 每日早昆 6:20 昆明池大石头
 
 ## 数据与隐私
 

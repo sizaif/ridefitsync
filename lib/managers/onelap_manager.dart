@@ -53,12 +53,9 @@ class OneLapManager extends ChangeNotifier {
       final lastSyncTime = int.tryParse(lastSyncTimeStr);
       if (lastSyncTime != null && lastSyncTime > 0) {
         _lastSyncDate = DateTime.fromMillisecondsSinceEpoch(lastSyncTime * 1000);
-      } else {
-        _lastSyncDate = DateTime.now();
       }
-    } else {
-      _lastSyncDate = DateTime.now();
     }
+    // 无记录时 _lastSyncDate 保持 null，首次同步拉取全部活动
   }
 
   Future<void> setLastSyncDate(DateTime? lastSyncDate) async {
@@ -215,13 +212,13 @@ class OneLapManager extends ChangeNotifier {
   }
 
   // 获取活动列表
-  Future<List<Map<String, dynamic>>> getActivities() async {
+  Future<List<Map<String, dynamic>>> getActivities({DateTime? startDate}) async {
     if (!await checkAndLogin()) {
       throw Exception('顽鹿未登录');
     }
 
     _logManager.addLog('获取顽鹿活动列表...');
-    final activities = await _service.getActivities(_lastSyncDate);
+    final activities = await _service.getActivities(startDate ?? _lastSyncDate);
     _logManager.addLog('获取到 ${activities.length} 个顽鹿活动');
     return activities;
   }

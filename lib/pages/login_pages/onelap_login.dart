@@ -35,25 +35,25 @@ class OneLapLoginPage extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => OneLapWebViewLoginPage(
-                onLoginSuccess: ({
-                  required String token,
-                  String? refreshToken,
-                  String? uid,
-                  String? nickname,
-                }) =>
-                    manager.loginViaWebView(
-                  token: token,
-                  refreshToken: refreshToken,
-                  uid: uid,
-                  nickname: nickname,
-                ),
+                onLoginSuccess:
+                    ({
+                      required String token,
+                      String? refreshToken,
+                      String? uid,
+                      String? nickname,
+                    }) => manager.loginViaWebView(
+                      token: token,
+                      refreshToken: refreshToken,
+                      uid: uid,
+                      nickname: nickname,
+                    ),
               ),
             ),
           );
           if (result == true && context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(S.current.loginSuccess)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(S.current.loginSuccess)));
             Navigator.pop(context, true);
           }
         },
@@ -105,7 +105,9 @@ class OneLapLoginPage extends StatelessWidget {
               Text('连接失败'),
             ],
           ),
-          content: Text('${result['message']}\n\n可能原因:\n1. 网络未连接\n2. 防火墙阻止访问\n3. 服务器维护中'),
+          content: Text(
+            '${result['message']}\n\n可能原因:\n1. 网络未连接\n2. 防火墙阻止访问\n3. 服务器维护中',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),

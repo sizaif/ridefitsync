@@ -71,10 +71,12 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
 
   Future<void> _sendCode() async {
     final phone = _phoneController.text.trim();
-    if (phone.isEmpty || phone.length != 11 || !RegExp(r'^\d+$').hasMatch(phone)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.invalidPhone)),
-      );
+    if (phone.isEmpty ||
+        phone.length != 11 ||
+        !RegExp(r'^\d+$').hasMatch(phone)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.current.invalidPhone)));
       return;
     }
 
@@ -86,19 +88,19 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
 
       if (success) {
         _startCountdown();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${S.current.codeSent} $phone')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('${S.current.codeSent} $phone')));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.codeSendFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.codeSendFailed)));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.loginError}: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.loginError}: $e')));
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -116,15 +118,15 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
         final code = _codeController.text.trim();
 
         if (phone.isEmpty || code.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(S.current.enterPhoneAndCode)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(S.current.enterPhoneAndCode)));
           return;
         }
         if (code.length < 4) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(S.current.invalidCode)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(S.current.invalidCode)));
           return;
         }
 
@@ -152,15 +154,15 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
         );
         Navigator.pop(context, true);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.current.loginFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(S.current.loginFailed)));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${S.current.loginError}: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${S.current.loginError}: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -168,13 +170,12 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: Text('iGPSPORT ${S.current.login}'),
-      ),
+      backgroundColor: colorScheme.surface,
+      appBar: AppBar(title: Text('iGPSPORT ${S.current.login}')),
       body: Container(
-        decoration: AppTheme.backgroundGradient,
+        decoration: AppTheme.loginBackgroundFor(context),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -192,13 +193,14 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
-                  color: Colors.white.withOpacity(0.6),
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
               const SizedBox(height: 32),
-              _buildLoginModeSwitch()
-                  .animate()
-                  .fadeIn(duration: 400.ms, delay: 250.ms),
+              _buildLoginModeSwitch().animate().fadeIn(
+                duration: 400.ms,
+                delay: 250.ms,
+              ),
               const SizedBox(height: 16),
               _buildLoginForm()
                   .animate()
@@ -225,15 +227,12 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
           ),
         ],
       ),
-      child: const Icon(
-        Icons.pedal_bike,
-        size: 56,
-        color: AppTheme.igpColor,
-      ),
+      child: const Icon(Icons.pedal_bike, size: 56, color: AppTheme.igpColor),
     );
   }
 
   Widget _buildLoginModeSwitch() {
+    final colorScheme = Theme.of(context).colorScheme;
     return GlassCard(
       padding: const EdgeInsets.all(4),
       opacity: 0.1,
@@ -245,7 +244,9 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: !_isSmsMode ? AppTheme.igpColor.withOpacity(0.3) : Colors.transparent,
+                  color: !_isSmsMode
+                      ? AppTheme.igpColor.withOpacity(0.18)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -254,14 +255,20 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
                     Icon(
                       Icons.lock_outline,
                       size: 18,
-                      color: !_isSmsMode ? Colors.white : Colors.white54,
+                      color: !_isSmsMode
+                          ? AppTheme.igpColor
+                          : colorScheme.onSurfaceVariant,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       S.current.passwordLogin,
                       style: TextStyle(
-                        color: !_isSmsMode ? Colors.white : Colors.white54,
-                        fontWeight: !_isSmsMode ? FontWeight.bold : FontWeight.normal,
+                        color: !_isSmsMode
+                            ? AppTheme.igpColor
+                            : colorScheme.onSurfaceVariant,
+                        fontWeight: !_isSmsMode
+                            ? FontWeight.bold
+                            : FontWeight.normal,
                       ),
                     ),
                   ],
@@ -275,7 +282,9 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: _isSmsMode ? AppTheme.igpColor.withOpacity(0.3) : Colors.transparent,
+                  color: _isSmsMode
+                      ? AppTheme.igpColor.withOpacity(0.18)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -284,14 +293,20 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
                     Icon(
                       Icons.sms_outlined,
                       size: 18,
-                      color: _isSmsMode ? Colors.white : Colors.white54,
+                      color: _isSmsMode
+                          ? AppTheme.igpColor
+                          : colorScheme.onSurfaceVariant,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       S.current.smsLogin,
                       style: TextStyle(
-                        color: _isSmsMode ? Colors.white : Colors.white54,
-                        fontWeight: _isSmsMode ? FontWeight.bold : FontWeight.normal,
+                        color: _isSmsMode
+                            ? AppTheme.igpColor
+                            : colorScheme.onSurfaceVariant,
+                        fontWeight: _isSmsMode
+                            ? FontWeight.bold
+                            : FontWeight.normal,
                       ),
                     ),
                   ],
@@ -305,6 +320,7 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
   }
 
   Widget _buildLoginForm() {
+    final colorScheme = Theme.of(context).colorScheme;
     return GlassCard(
       padding: const EdgeInsets.all(24),
       opacity: 0.1,
@@ -322,7 +338,7 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
               ),
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: colorScheme.onSurface),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -334,14 +350,15 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
                 suffixIcon: IconButton(
                   icon: Icon(
                     _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                    color: Colors.white54,
+                    color: colorScheme.onSurfaceVariant,
                   ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
               obscureText: _obscurePassword,
               textInputAction: TextInputAction.done,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: colorScheme.onSurface),
               onSubmitted: (_) => _login(),
             ),
           ] else ...[
@@ -355,7 +372,7 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
               ),
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: colorScheme.onSurface),
               maxLength: 11,
             ),
             const SizedBox(height: 12),
@@ -372,7 +389,7 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
                     ),
                     keyboardType: TextInputType.number,
                     textInputAction: TextInputAction.done,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: colorScheme.onSurface),
                     onSubmitted: (_) => _login(),
                   ),
                 ),
@@ -381,10 +398,13 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
                   height: 56,
                   width: 110,
                   child: ElevatedButton(
-                    onPressed: (_countdown > 0 || _isSending) ? null : _sendCode,
+                    onPressed: (_countdown > 0 || _isSending)
+                        ? null
+                        : _sendCode,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.igpColor,
-                      disabledBackgroundColor: Colors.white12,
+                      disabledBackgroundColor: colorScheme.onSurface
+                          .withOpacity(0.12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -400,7 +420,9 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
                             ),
                           )
                         : Text(
-                            _countdown > 0 ? '${_countdown}s' : S.current.sendCode,
+                            _countdown > 0
+                                ? '${_countdown}s'
+                                : S.current.sendCode,
                             style: const TextStyle(fontSize: 13),
                           ),
                   ),
@@ -414,10 +436,7 @@ class _IGPLoginPageState extends State<IGPLoginPage> {
             height: 52,
             child: GradientButton(
               onPressed: _isLoading ? null : _login,
-              colors: [
-                AppTheme.igpColor,
-                AppTheme.igpColor.withOpacity(0.7),
-              ],
+              colors: [AppTheme.igpColor, AppTheme.igpColor.withOpacity(0.7)],
               child: _isLoading
                   ? const SizedBox(
                       width: 22,

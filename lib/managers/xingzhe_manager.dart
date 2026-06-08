@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../app_storage.dart';
@@ -23,7 +22,6 @@ class XingzheManager extends ChangeNotifier {
   String? get username => _username;
 
   String? _sessionId;
-  int? _userId;
 
   Future<void> init() async {
     await _storage.init();
@@ -32,7 +30,6 @@ class XingzheManager extends ChangeNotifier {
     final account = await _storage.read(key: 'xingzhe_username');
     _username = nickname ?? (account != null ? maskAccount(account) : null);
     _sessionId = await _storage.read(key: 'xingzhe_session_id');
-    _userId = int.tryParse(await _storage.read(key: 'xingzhe_user_id') ?? "") ?? 0;
 
     if (_sessionId != null) {
       _service.token = _sessionId!;
@@ -41,9 +38,13 @@ class XingzheManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _saveSession(String sessionId, {int? userId, String? username, String? nickname}) async {
+  Future<void> _saveSession(
+    String sessionId, {
+    int? userId,
+    String? username,
+    String? nickname,
+  }) async {
     _sessionId = sessionId;
-    _userId = userId;
     if (username != null) {
       await _storage.write(key: 'xingzhe_username', value: username);
     }
@@ -134,7 +135,7 @@ class XingzheManager extends ChangeNotifier {
     await _storage.delete(key: 'xingzhe_nickname');
     _username = null;
     _sessionId = null;
-    _userId = null;
+    _service.token = null;
     _logManager.addLog('行者已登出');
     notifyListeners();
   }
@@ -186,7 +187,9 @@ class XingzheManager extends ChangeNotifier {
       _logManager.addLog('行者上传成功: $result');
       return result;
     } catch (e) {
-      throw Exception('行者上传失败: ${e.toString().replaceFirst('Exception: ', '')}');
+      throw Exception(
+        '行者上传失败: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
     } finally {
       _isUploading = false;
       notifyListeners();

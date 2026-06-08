@@ -73,6 +73,7 @@ class S {
   String get english => _isZh ? '英文' : 'English';
   String get needLoginFirst => _isZh ? '需先登录' : 'Login required';
   String get cannotBeTarget => _isZh ? '当前数据源 · 不可作为上传目标' : 'Current data source · Cannot be target';
+  String get comingSoon => _isZh ? '即将上线' : 'Coming soon';
   String get currentDataSource => _isZh ? '当前数据源' : 'Current Source';
 
   // ===== 登录页 =====
@@ -143,6 +144,31 @@ class S {
   String get wechatPay => _isZh ? '微信支付' : 'WeChat Pay';
   String get donateFooter => _isZh ? '您的每一份支持都是我们前进的动力' : 'Every bit of support keeps us going';
   String get donateThanks2 => _isZh ? '❤️ 谢谢 ❤️' : '❤️ Thank you ❤️';
+  String get githubProject => _isZh ? 'GitHub 项目地址' : 'GitHub Project';
+  String get githubProjectDesc => _isZh ? '欢迎 Star ⭐ & Fork 🍴' : 'Star ⭐ & Fork 🍴 welcome!';
+
+  // ===== 作者 & 俱乐部 =====
+  String get authorInfo => _isZh ? '长安四季#小悟空' : 'ChangAnSiJi#XiaoWuKong';
+  String get clubIntroTitle => _isZh ? '长安四季骑行俱乐部' : 'ChangAnSiJi Cycling Club';
+  String get clubName => _isZh ? '长安四季骑行俱乐部' : 'ChangAnSiJi Cycling Club';
+  String get clubSlogan => _isZh
+      ? '长安四季（CASF · Chang An Four Seasons）\n尽览古城四季更迭，山水花色；春夏秋冬都骑，哪季都不缺席'
+      : 'Chang An Four Seasons (CASF)\nRide through all four seasons of the ancient capital; mountains, rivers, and blossoms — we ride them all, never missing a season';
+  String get clubAbout => _isZh ? '俱乐部介绍' : 'About Us';
+  String get clubDescription => _isZh
+      ? '长安四季骑行俱乐部成立于2023年，坐落于古都西安。\n\n'
+          '我们是一群热爱骑行、追求自由的伙伴，无论春夏秋冬，每一个季节都有我们的轮迹。俱乐部秉持"快乐骑行、安全第一"的理念，致力于为每一位骑行爱好者打造一个温暖、专业的骑行社区。\n\n'
+          '俱乐部定期组织周末骑游、长途拉练、夜骑长安等活动，覆盖秦岭、环山路、渭河绿道等经典路线。无论你是新手入门还是资深老鸟，都能在这里找到志同道合的伙伴。'
+      : 'Founded in 2023, ChangAnSiJi Cycling Club is based in Xi\'an, China.\n\n'
+          'We are a group of cycling enthusiasts who love riding and freedom. Our tracks cover all four seasons around the ancient capital. The club adheres to the principle of "Happy Riding, Safety First" and is committed to building a warm and professional cycling community for every rider.\n\n'
+          'We regularly organize weekend rides, long-distance training, and night rides around classic routes including Qinling Mountains, Huanshan Road, and Weihe Greenway. Whether you\'re a beginner or a veteran, you\'ll find like-minded friends here.';
+  String get clubJoinUs => _isZh ? '加入我们' : 'Join Us';
+  String get clubJoinIntro => _isZh
+      ? '如果你也热爱骑行，欢迎加入长安四季骑行俱乐部！请添加微信好友（注明来意）：'
+      : 'If you love cycling too, welcome to join us! Add us on WeChat (please state your purpose):';
+  String get clubJoinActivity => _isZh
+      ? '🕐 每日早昆，早上 6:20 昆明池大石头\n\n一起用车轮丈量长安，用汗水书写四季！'
+      : '🕐 Daily morning ride, 6:20 AM at Kunming Lake Big Stone\n\nLet\'s measure Chang\'an with our wheels!';
 
   // ===== 更新 =====
   String get alreadyLatestVersion => _isZh ? '已是最新版本' : 'Already up to date';

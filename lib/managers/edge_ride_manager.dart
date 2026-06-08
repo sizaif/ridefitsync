@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../app_storage.dart';
 import '../services/edge_ride_service.dart';
@@ -21,8 +20,6 @@ class EdgeRideManager extends ChangeNotifier {
   String? _username;
   String? get username => _username;
 
-  String? _phone;
-
   Future<void> init() async {
     await _storage.init();
 
@@ -35,7 +32,6 @@ class EdgeRideManager extends ChangeNotifier {
 
     final nickname = await _storage.read(key: 'edge_ride_nickname');
     final phone = await _storage.read(key: 'edge_ride_phone');
-    _phone = phone;
     _username = nickname ?? (phone != null ? maskAccount(phone) : null);
 
     notifyListeners();
@@ -58,9 +54,14 @@ class EdgeRideManager extends ChangeNotifier {
       final result = await _service.login(phone, verifyCode);
       if (result['success'] == true) {
         await _storage.write(key: 'edge_ride_phone', value: phone);
-        await _storage.write(key: 'edge_ride_sid', value: result['sid'] as String? ?? '');
-        await _storage.write(key: 'edge_ride_uid', value: result['uid'] as String? ?? '');
-        _phone = phone;
+        await _storage.write(
+          key: 'edge_ride_sid',
+          value: result['sid'] as String? ?? '',
+        );
+        await _storage.write(
+          key: 'edge_ride_uid',
+          value: result['uid'] as String? ?? '',
+        );
         _username = maskAccount(phone);
 
         _logManager.addLog('EdgeRide登录成功');
@@ -80,8 +81,8 @@ class EdgeRideManager extends ChangeNotifier {
     await _storage.delete(key: 'edge_ride_nickname');
     await _storage.delete(key: 'edge_ride_sid');
     await _storage.delete(key: 'edge_ride_uid');
+    _service.restoreSession(null, null);
     _username = null;
-    _phone = null;
     _logManager.addLog('EdgeRide已登出');
     notifyListeners();
   }
@@ -101,7 +102,9 @@ class EdgeRideManager extends ChangeNotifier {
       _logManager.addLog('EdgeRide上传成功: $result');
       return result;
     } catch (e) {
-      throw Exception('EdgeRide上传失败: ${e.toString().replaceFirst('Exception: ', '')}');
+      throw Exception(
+        'EdgeRide上传失败: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
     } finally {
       _isUploading = false;
       notifyListeners();

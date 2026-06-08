@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../l10n/strings.dart';
 
 class DonatePage extends StatelessWidget {
@@ -68,6 +69,9 @@ class DonatePage extends StatelessWidget {
               assetPath: 'assets/donate/wx.png',
               isDark: isDark,
             ),
+            const SizedBox(height: 24),
+
+            _buildGitHubCard(context, theme, isDark: isDark),
             const SizedBox(height: 32),
 
             Text(
@@ -149,6 +153,52 @@ class DonatePage extends StatelessWidget {
         ),
       ),
     ).animate().fadeIn(duration: 400.ms, delay: 200.ms);
+  }
+
+  Widget _buildGitHubCard(BuildContext context, ThemeData theme, {required bool isDark}) {
+    const githubUrl = 'https://github.com/sizaif/ridefitsync';
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => launchUrl(Uri.parse(githubUrl), mode: LaunchMode.externalApplication),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.code_rounded, color: isDark ? Colors.white70 : Colors.black87, size: 24),
+                  const SizedBox(width: 8),
+                  Text(
+                    S.current.githubProject,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  githubUrl,
+                  style: TextStyle(fontSize: 13, color: theme.colorScheme.primary),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                S.current.githubProjectDesc,
+                style: TextStyle(fontSize: 13, color: theme.hintColor),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms, delay: 400.ms);
   }
 
   void _showFullScreenImage(BuildContext context, String assetPath) {
