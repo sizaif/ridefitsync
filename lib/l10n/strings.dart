@@ -87,9 +87,12 @@ class S {
   String get codeSent => _isZh ? '验证码已发送到' : 'Code sent to';
   String get enterPhoneAndCode => _isZh ? '请输入手机号和验证码' : 'Enter phone and code';
   String get enterUsernameAndPassword => _isZh ? '请输入用户名和密码' : 'Enter username and password';
+  String get enterUsernamePassword => _isZh ? '请输入用户名和密码' : 'Enter username and password';
   String get uploadSuccess => _isZh ? '上传成功' : 'Upload successful';
   String get uploadFailed => _isZh ? '上传失败' : 'Upload failed';
   String notLoggedInToPlatform(String p) => _isZh ? '$p未登录' : '$p not logged in';
+  String get passwordLogin => _isZh ? '密码登录' : 'Password';
+  String get smsLogin => _isZh ? '验证码登录' : 'SMS';
 
   // ===== 登出 =====
   String logoutTitle(String name) => _isZh ? '登出 $name' : 'Logout $name';

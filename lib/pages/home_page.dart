@@ -246,58 +246,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (result == true && mounted) setState(() {});
   }
 
-  // === 登出 ===
-
-  Future<void> _logoutPlatform(String platform, String name) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(S.current.logoutTitle(name)),
-        content: Text(S.current.logoutConfirm(name)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(S.current.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(S.current.logout, style: const TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    switch (platform) {
-      case 'strava':
-        await _syncHub.stravaManager.logout();
-        break;
-      case 'igp':
-        await _syncHub.igpManager.logout();
-        break;
-      case 'xingzhe':
-        await _syncHub.xingzheManager.logout();
-        break;
-      case 'giant':
-        await _syncHub.giantManager.logout();
-        break;
-      case 'garmin':
-        await _syncHub.garminManager.logout();
-        break;
-      case 'edge_ride':
-        await _syncHub.edgeRideManager.logout();
-        break;
-    }
-
-    if (mounted) {
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.current.loggedOut(name))),
-      );
-    }
-  }
-
   // === UI ===
 
   int get _connectedCount {
@@ -698,17 +646,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 tooltip: '${S.current.syncToPlatform} ${info.name}',
                 onPressed: () => _syncToSinglePlatform(info.platform),
               ),
-            // 登出按钮
-            IconButton(
-              icon: const Icon(Icons.logout, size: 20),
-              color: info.isLoggedIn
-                  ? theme.colorScheme.error.withOpacity(0.6)
-                  : theme.disabledColor,
-              tooltip: info.isLoggedIn ? S.current.logoutTitle(info.name) : S.current.notLoggedIn,
-              onPressed: info.isLoggedIn
-                  ? () => _logoutPlatform(info.platform, info.name)
-                  : null,
-            ),
             if (!info.isLoggedIn)
               Icon(
                 Icons.chevron_right,

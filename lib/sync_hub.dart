@@ -13,6 +13,7 @@ import 'managers/edge_ride_manager.dart';
 import 'log_manager.dart';
 import 'app_storage.dart';
 import 'coord_fixer.dart';
+import 'sync_record_manager.dart';
 
 /// 同步中心 - 协调所有平台的同步
 class SyncHub extends ChangeNotifier {
@@ -29,7 +30,9 @@ class SyncHub extends ChangeNotifier {
   final _edgeRideManager = EdgeRideManager();
   final _logManager = LogManager();
   final _storage = AppStorage();
+  final _syncRecordManager = SyncRecordManager();
   AppStorage get storage => _storage;
+  SyncRecordManager get syncRecordManager => _syncRecordManager;
 
   bool _isSyncing = false;
   bool get isSyncing => _isSyncing;
@@ -39,6 +42,9 @@ class SyncHub extends ChangeNotifier {
 
   int _failedCount = 0;
   int get failedCount => _failedCount;
+
+  int _skippedCount = 0;
+  int get skippedCount => _skippedCount;
 
   // 数据源平台（默认顽鹿）
   String _dataSource = 'onelap';
@@ -56,6 +62,7 @@ class SyncHub extends ChangeNotifier {
   bool get hasCachedFit => _cachedFitBytes != null && _cachedFileName != null;
 
   // 上传目标平台开关
+  bool _enableOnelap = true;
   bool _enableStrava = true;
   bool _enableIgp = true;
   bool _enableXingzhe = true;
@@ -63,6 +70,7 @@ class SyncHub extends ChangeNotifier {
   bool _enableGarmin = true;
   bool _enableEdgeRide = true;
   bool _fixCoordinates = true;
+  bool _forceSync = false; // 强制同步开关
 
   // 定时自动同步
   Timer? _autoSyncTimer;
@@ -72,6 +80,7 @@ class SyncHub extends ChangeNotifier {
 
   bool get autoSyncEnabled => _autoSyncEnabled;
 
+  bool get enableOnelap => _enableOnelap;
   bool get enableStrava => _enableStrava;
   bool get enableIgp => _enableIgp;
   bool get enableXingzhe => _enableXingzhe;
@@ -79,10 +88,12 @@ class SyncHub extends ChangeNotifier {
   bool get enableGarmin => _enableGarmin;
   bool get enableEdgeRide => _enableEdgeRide;
   bool get fixCoordinates => _fixCoordinates;
+  bool get forceSync => _forceSync;
 
   // 初始化所有管理器
   Future<void> init() async {
     await _storage.init();
+    await _syncRecordManager.init();
     await _onelapManager.init();
     await _stravaManager.init();
     await _igpManager.init();
@@ -121,6 +132,7 @@ class SyncHub extends ChangeNotifier {
 
   Future<void> loadSettings() async {
     _dataSource = await _storage.readPrefs(key: 'data_source') ?? 'onelap';
+    _enableOnelap = await _storage.readBoolPrefs(key: 'enable_onelap', defaultValue: true);
     _enableStrava = await _storage.readBoolPrefs(key: 'enable_strava', defaultValue: true);
     _enableIgp = await _storage.readBoolPrefs(key: 'enable_igp', defaultValue: true);
     _enableXingzhe = await _storage.readBoolPrefs(key: 'enable_xingzhe', defaultValue: true);
@@ -128,6 +140,7 @@ class SyncHub extends ChangeNotifier {
     _enableGarmin = await _storage.readBoolPrefs(key: 'enable_garmin', defaultValue: true);
     _enableEdgeRide = await _storage.readBoolPrefs(key: 'enable_edge_ride', defaultValue: true);
     _fixCoordinates = await _storage.readBoolPrefs(key: 'fix_coordinates', defaultValue: true);
+    _forceSync = await _storage.readBoolPrefs(key: 'force_sync', defaultValue: false);
     await _loadAutoSyncSettings();
     notifyListeners();
   }
@@ -201,6 +214,12 @@ class SyncHub extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setEnableOnelap(bool value) async {
+    _enableOnelap = value;
+    await _storage.writeBoolPrefs(key: 'enable_onelap', value: value);
+    notifyListeners();
+  }
+
   Future<void> setEnableStrava(bool value) async {
     _enableStrava = value;
     await _storage.writeBoolPrefs(key: 'enable_strava', value: value);
@@ -243,6 +262,13 @@ class SyncHub extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setForceSync(bool value) async {
+    _forceSync = value;
+    await _storage.writeBoolPrefs(key: 'force_sync', value: value);
+    _logManager.addLog(value ? '强制同步已开启' : '强制同步已关闭');
+    notifyListeners();
+  }
+
   // 数据源是否已登录
   bool get isDataSourceLoggedIn {
     switch (_dataSource) {
@@ -280,6 +306,7 @@ class SyncHub extends ChangeNotifier {
     if (!isDataSourceLoggedIn) return false;
     // 数据源不能同时作为上传目标
     bool hasTarget = false;
+    if (_dataSource != 'onelap' && _enableOnelap && _onelapManager.isLoggedIn) hasTarget = true;
     if (_dataSource != 'strava' && _enableStrava && _stravaManager.isAuthenticated) hasTarget = true;
     if (_dataSource != 'igp' && _enableIgp && _igpManager.isLoggedIn) hasTarget = true;
     if (_dataSource != 'xingzhe' && _enableXingzhe && _xingzheManager.isLoggedIn) hasTarget = true;
@@ -309,10 +336,14 @@ class SyncHub extends ChangeNotifier {
     _isSyncing = true;
     _syncedCount = 0;
     _failedCount = 0;
+    _skippedCount = 0;
     notifyListeners();
 
     try {
       _logManager.addLog('开始从 $_dataSourceDisplayName 同步...');
+      if (_forceSync) {
+        _logManager.addLog('强制同步模式：将重新同步所有活动');
+      }
 
       // 1. 从数据源获取活动列表
       final activities = await _getSourceActivities();
@@ -321,23 +352,40 @@ class SyncHub extends ChangeNotifier {
         return;
       }
 
-      _logManager.addLog('找到 ${activities.length} 个新活动');
+      _logManager.addLog('找到 ${activities.length} 个活动');
 
-      // 2. 遍历每个活动
+      // 2. 获取当前启用的平台列表
+      final enabledPlatforms = _getEnabledPlatforms();
+
+      // 3. 遍历每个活动
       for (var activity in activities) {
         try {
+          final activityId = _getActivityId(activity);
           final title = activity['title'] ?? activity['name'] ?? '未命名活动';
-          _logManager.addLog('处理活动: $title');
 
-          // 3. 下载FIT文件
+          // 检查是否需要同步
+          if (!_forceSync) {
+            // 非强制模式下，检查是否已经同步到所有启用的平台
+            final platformsToSync = _syncRecordManager.getPlatformsToSync(activityId, enabledPlatforms);
+            if (platformsToSync.isEmpty) {
+              _logManager.addLog('跳过活动（已同步）: $title');
+              _skippedCount++;
+              continue;
+            }
+            _logManager.addLog('处理活动: $title (待同步平台: ${platformsToSync.join(", ")})');
+          } else {
+            _logManager.addLog('处理活动（强制模式）: $title');
+          }
+
+          // 4. 下载FIT文件
           final fitBytes = await _downloadSourceFit(activity);
           final fileName = _buildFileName(activity);
 
           // Debug: 保存原始下载的 FIT 文件
           await _saveDebugFile(fitBytes, 'original', fileName);
 
-          // 4. 并行上传到各平台
-          await uploadToAllPlatforms(fitBytes, fileName);
+          // 5. 上传到各平台（带同步状态记录）
+          await uploadToAllPlatforms(fitBytes, fileName, activityId: activityId);
 
           _syncedCount++;
         } catch (e) {
@@ -346,7 +394,7 @@ class SyncHub extends ChangeNotifier {
         }
       }
 
-      _logManager.addLog('同步完成: 成功 $_syncedCount, 失败 $_failedCount');
+      _logManager.addLog('同步完成: 成功 $_syncedCount, 失败 $_failedCount, 跳过 $_skippedCount');
       onSyncCompleted?.call(_syncedCount, _failedCount);
     } catch (e) {
       _logManager.addLog('同步错误: $e', isError: true);
@@ -369,6 +417,49 @@ class SyncHub extends ChangeNotifier {
       default:
         return _dataSource;
     }
+  }
+
+  /// 获取当前启用的平台列表
+  List<String> _getEnabledPlatforms() {
+    final platforms = <String>[];
+    if (_dataSource != 'onelap' && _enableOnelap && _onelapManager.isLoggedIn) {
+      platforms.add('onelap');
+    }
+    if (_dataSource != 'strava' && _enableStrava && _stravaManager.isAuthenticated) {
+      platforms.add('strava');
+    }
+    if (_dataSource != 'igp' && _enableIgp && _igpManager.isLoggedIn) {
+      platforms.add('igp');
+    }
+    if (_dataSource != 'xingzhe' && _enableXingzhe && _xingzheManager.isLoggedIn) {
+      platforms.add('xingzhe');
+    }
+    if (_dataSource != 'giant' && _enableGiant && _giantManager.isLoggedIn) {
+      platforms.add('giant');
+    }
+    if (_dataSource != 'garmin' && _enableGarmin && _garminManager.isLoggedIn) {
+      platforms.add('garmin');
+    }
+    if (_dataSource != 'edge_ride' && _enableEdgeRide && _edgeRideManager.isLoggedIn) {
+      platforms.add('edge_ride');
+    }
+    return platforms;
+  }
+
+  /// 获取活动的唯一标识
+  String _getActivityId(Map<String, dynamic> activity) {
+    // 优先使用活动ID
+    if (activity['id'] != null) {
+      return '${_dataSource}_${activity['id']}';
+    }
+    // 使用开始时间作为标识
+    final startTime = activity['startTime'] ?? activity['start_time'] ?? '';
+    if (startTime.isNotEmpty) {
+      return '${_dataSource}_$startTime';
+    }
+    // 使用文件名作为标识
+    final fileName = _buildFileName(activity);
+    return '${_dataSource}_$fileName';
   }
 
   Future<List<Map<String, dynamic>>> _getSourceActivities() async {
@@ -421,13 +512,23 @@ class SyncHub extends ChangeNotifier {
   }
 
   // 并行上传到所有已登录且已启用的平台（排除数据源）
-  Future<void> uploadToAllPlatforms(Uint8List fitBytes, String fileName) async {
+  Future<void> uploadToAllPlatforms(Uint8List fitBytes, String fileName, {String? activityId}) async {
     // 坐标纠偏
     if (_fixCoordinates) {
       final ext = fileName.split('.').last.toLowerCase();
       if (['fit', 'gpx', 'tcx'].contains(ext)) {
         try {
           fitBytes = await CoordFixer.processFile(fitBytes, ext);
+          // 记录坐标检测结果
+          final detectionResult = CoordFixer.lastDetectionResult;
+          final sampleCount = CoordFixer.lastSampleCount;
+          if (detectionResult == true) {
+            _logManager.addLog('坐标检测: WGS-84 (无需纠正, 样本数: $sampleCount)');
+          } else if (detectionResult == false) {
+            _logManager.addLog('坐标检测: GCJ-02 (已纠正为 WGS-84, 样本数: $sampleCount)');
+          } else {
+            _logManager.addLog('坐标检测: 无坐标数据');
+          }
           // Debug: 保存坐标纠偏后的 FIT 文件
           await _saveDebugFile(fitBytes, 'fixed', fileName);
         } catch (e) {
@@ -436,7 +537,81 @@ class SyncHub extends ChangeNotifier {
       }
     }
 
+    // 如果没有 activityId，直接上传所有平台（兼容旧逻辑）
+    if (activityId == null) {
+      await _uploadToAllPlatformsLegacy(fitBytes, fileName);
+      return;
+    }
+
+    // 获取需要同步的平台列表
+    final enabledPlatforms = _getEnabledPlatforms();
+    final platformsToSync = _forceSync
+        ? enabledPlatforms
+        : _syncRecordManager.getPlatformsToSync(activityId, enabledPlatforms);
+
+    if (platformsToSync.isEmpty) {
+      _logManager.addLog('所有平台已同步，跳过上传');
+      return;
+    }
+
+    // 按平台上传
+    final results = <String, bool>{};
+    for (var platform in platformsToSync) {
+      try {
+        bool success = false;
+        switch (platform) {
+          case 'strava':
+            success = await _uploadToStrava(fitBytes, fileName);
+            break;
+          case 'igp':
+            success = await _uploadToIgp(fitBytes, fileName);
+            break;
+          case 'xingzhe':
+            success = await _uploadToXingzhe(fitBytes, fileName);
+            break;
+          case 'giant':
+            success = await _uploadToGiant(fitBytes, fileName);
+            break;
+          case 'garmin':
+            success = await _uploadToGarmin(fitBytes, fileName);
+            break;
+          case 'edge_ride':
+            success = await _uploadToEdgeRide(fitBytes, fileName);
+            break;
+        }
+        results[platform] = success;
+
+        // 记录同步状态
+        if (success) {
+          await _syncRecordManager.recordSuccess(activityId, platform);
+        } else {
+          await _syncRecordManager.recordFailure(activityId, platform, '上传失败');
+        }
+      } catch (e) {
+        results[platform] = false;
+        await _syncRecordManager.recordFailure(activityId, platform, e.toString());
+        _logManager.addLog('上传到 $platform 失败: $e', isError: true);
+      }
+    }
+
+    // 统计结果
+    final failCount = results.values.where((r) => !r).length;
+    final successCount = results.length - failCount;
+    if (successCount == 0 && results.isNotEmpty) {
+      throw Exception('所有目标平台上传均失败');
+    } else if (failCount > 0) {
+      _logManager.addLog('部分平台上传失败: $successCount/${results.length} 成功, $failCount 失败');
+    }
+  }
+
+  // 兼容旧逻辑的上传方法
+  Future<void> _uploadToAllPlatformsLegacy(Uint8List fitBytes, String fileName) async {
     final futures = <Future<bool>>[];
+
+    // 顽鹿（数据源不能是onelap）
+    if (_dataSource != 'onelap' && _enableOnelap && _onelapManager.isLoggedIn) {
+      futures.add(_uploadToOnelap(fitBytes, fileName));
+    }
 
     // Strava（数据源不能是strava）
     if (_dataSource != 'strava' && _enableStrava && _stravaManager.isAuthenticated) {
@@ -564,6 +739,16 @@ class SyncHub extends ChangeNotifier {
       if (['fit', 'gpx', 'tcx'].contains(ext)) {
         try {
           fitBytes = await CoordFixer.processFile(fitBytes, ext);
+          // 记录坐标检测结果
+          final detectionResult = CoordFixer.lastDetectionResult;
+          final sampleCount = CoordFixer.lastSampleCount;
+          if (detectionResult == true) {
+            _logManager.addLog('坐标检测: WGS-84 (无需纠正, 样本数: $sampleCount)');
+          } else if (detectionResult == false) {
+            _logManager.addLog('坐标检测: GCJ-02 (已纠正为 WGS-84, 样本数: $sampleCount)');
+          } else {
+            _logManager.addLog('坐标检测: 无坐标数据');
+          }
         } catch (e) {
           _logManager.addLog('坐标纠偏失败: $e', isError: true);
         }
@@ -571,6 +756,9 @@ class SyncHub extends ChangeNotifier {
     }
 
     switch (platform) {
+      case 'onelap':
+        await _uploadToOnelap(fitBytes, fileName);
+        break;
       case 'strava':
         await _uploadToStrava(fitBytes, fileName);
         break;
@@ -591,6 +779,16 @@ class SyncHub extends ChangeNotifier {
         break;
       default:
         throw Exception('不支持的平台: $platform');
+    }
+  }
+
+  Future<bool> _uploadToOnelap(Uint8List fitBytes, String fileName) async {
+    try {
+      await _onelapManager.uploadFitFile(fitBytes, fileName);
+      return true;
+    } catch (e) {
+      _logManager.addLog('上传顽鹿失败: $e', isError: true);
+      return false;
     }
   }
 
@@ -682,6 +880,16 @@ class SyncHub extends ChangeNotifier {
       _logManager.addLog('[Debug] 保存文件失败: $e', isError: true);
     }
   }
+
+  /// 清除所有同步记录
+  Future<void> clearSyncRecords() async {
+    await _syncRecordManager.clearAllRecords();
+    _logManager.addLog('已清除所有同步记录');
+    notifyListeners();
+  }
+
+  /// 获取同步记录数量
+  int get syncRecordCount => _syncRecordManager.recordCount;
 
   // 获取各平台管理器
   OneLapManager get onelapManager => _onelapManager;

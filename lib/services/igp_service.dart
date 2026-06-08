@@ -15,6 +15,8 @@ class IGPService {
       ? '/proxy/igp/service'
       : 'https://prod.zh.igpsport.com/service';
   static const String _loginUrl = '$_baseUrl/auth/account/login';
+  static const String _sendSmsUrl = '$_baseUrl/auth/account/SendVerificationCode';
+  static const String _smsLoginUrl = '$_baseUrl/auth/account/login/phone';
   static const String _activityBaseUrl = '$_baseUrl/web-gateway/web-analyze/activity/';
   static const String _activityListUrl = '${_activityBaseUrl}queryMyActivity';
   static const String _downloadUrl = '${_activityBaseUrl}getDownloadUrl/';
@@ -120,7 +122,7 @@ class IGPService {
     };
   }
 
-  /// 登录到 iGPSPORT
+  /// 登录到 iGPSPORT (密码方式)
   Future<Map<String, dynamic>> login(String account, String password) async {
     try {
       final response = await AppHttpClient.post(
@@ -153,6 +155,87 @@ class IGPService {
           return {
             'success': false,
             'message': 'Invalid response format: $data',
+          };
+        }
+      } else {
+        return {
+          'success': false,
+          'message': 'HTTP Error: ${response.statusCode}',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  /// 发送短信验证码
+  Future<Map<String, dynamic>> sendSmsCode(String phone) async {
+    try {
+      final response = await AppHttpClient.post(
+        Uri.parse(_sendSmsUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'type': 1,
+          'username': phone,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final code = data['code'];
+        final msg = data['msg'] ?? data['message'] ?? '';
+
+        // 成功状态码: 0 或 200
+        if (code == 0 || code == 200 || code == '0' || code == '200') {
+          return {'success': true};
+        }
+        return {'success': false, 'message': msg.isNotEmpty ? msg : '发送验证码失败 (code=$code)'};
+      }
+      return {'success': false, 'message': 'HTTP Error: ${response.statusCode}'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  /// 短信验证码登录
+  Future<Map<String, dynamic>> loginBySmsCode(String phone, String smsCode) async {
+    try {
+      // 确保已获取 accessKey
+      await _fetchAccessKey();
+
+      final body = jsonEncode({
+        'appId': 'igpsport-web',
+        'phone': phone,
+        'code': smsCode,
+      });
+
+      // 使用签名 headers
+      final headers = _generateHeaders('POST', _smsLoginUrl, body: body);
+
+      final response = await AppHttpClient.post(
+        Uri.parse(_smsLoginUrl),
+        headers: headers,
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        dynamic responseData = data;
+        if (data is Map && data.containsKey('data')) {
+          responseData = data['data'];
+        }
+        if (responseData is Map && responseData['access_token'] != null) {
+          _token = responseData['access_token'];
+          return {
+            'success': true,
+            'token': _token,
+            'nickname': responseData['nickname']?.toString(),
+          };
+        } else {
+          return {
+            'success': false,
+            'message': data['msg'] ?? data['message'] ?? '登录失败',
           };
         }
       } else {

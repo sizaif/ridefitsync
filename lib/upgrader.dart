@@ -6,11 +6,14 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'log_manager.dart';
 import 'l10n/strings.dart';
 
 class AppUpgrader {
-  static const String currentVersion = "1.0.1";
+  // 缓存版本号（首次调用 _getVersion() 时填充）
+  static String? _cachedVersion;
+
   static const String repoUrl =
       "https://api.github.com/repos/sizaif/ridefitsync/releases/latest";
 
@@ -18,10 +21,25 @@ class AppUpgrader {
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
-  static int compareVersion(String newVersion) {
+  /// 从 PackageInfo 获取版本号（自动缓存）
+  static Future<String> getVersion() async {
+    if (_cachedVersion != null) return _cachedVersion!;
+    try {
+      final info = await PackageInfo.fromPlatform();
+      _cachedVersion = info.version;
+    } catch (_) {
+      // 降级：package_info_plus 不可用时返回默认值
+      _cachedVersion = '1.1.2';
+    }
+    return _cachedVersion!;
+  }
+
+  /// 比较版本号，返回 1=新版本可用, 0=相同, -1=当前更新
+  static Future<int> compareVersion(String newVersion) async {
+    final current = await getVersion();
     final v2 =
         newVersion.startsWith('v') ? newVersion.substring(1) : newVersion;
-    List<int> v1Parts = currentVersion.split('.').map(int.parse).toList();
+    List<int> v1Parts = current.split('.').map(int.parse).toList();
     List<int> v2Parts = v2.split('.').map(int.parse).toList();
     int maxLength =
         v1Parts.length > v2Parts.length ? v1Parts.length : v2Parts.length;
@@ -45,7 +63,7 @@ class AppUpgrader {
       if (data is! Map || !data.containsKey('tag_name')) return;
 
       final latestVersion = data['tag_name'] as String;
-      if (compareVersion(latestVersion) != 1) {
+      if (await compareVersion(latestVersion) != 1) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(S.current.alreadyLatestVersion)),

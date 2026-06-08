@@ -16,6 +16,7 @@ class PasswordLoginPage extends StatefulWidget {
   final String? initialUsername;
   final Future<bool> Function(String username, String password) onLogin;
   final Future<void> Function()? onTestConnection;
+  final Widget? additionalActions;  // 额外操作按钮（如"网页登录"）
 
   const PasswordLoginPage({
     super.key,
@@ -29,6 +30,7 @@ class PasswordLoginPage extends StatefulWidget {
     this.initialUsername,
     required this.onLogin,
     this.onTestConnection,
+    this.additionalActions,
   });
 
   @override
@@ -125,6 +127,11 @@ class _PasswordLoginPageState extends State<PasswordLoginPage> {
                   .animate()
                   .fadeIn(duration: 500.ms, delay: 300.ms)
                   .slideY(begin: 0.15, end: 0),
+              // 额外操作（如网页登录入口）
+              if (widget.additionalActions != null) ...[
+                const SizedBox(height: 16),
+                widget.additionalActions!,
+              ],
               const SizedBox(height: 24),
               // 提示文字
               Text(

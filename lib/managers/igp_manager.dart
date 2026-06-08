@@ -120,6 +120,47 @@ class IGPManager extends ChangeNotifier {
     }
   }
 
+  /// 发送短信验证码
+  Future<bool> sendSmsCode(String phone) async {
+    final result = await _service.sendSmsCode(phone);
+    if (result['success'] == true) {
+      _logManager.addLog('iGPSPORT验证码已发送到 $phone');
+      return true;
+    }
+    _logManager.addLog('iGPSPORT发送验证码失败: ${result['message']}', isError: true);
+    return false;
+  }
+
+  /// 短信验证码登录
+  Future<bool> loginBySmsCode(String phone, String smsCode) async {
+    try {
+      final result = await _service.loginBySmsCode(phone, smsCode);
+      if (result['success'] == true) {
+        // 保存凭证（不保存密码，因为是验证码登录）
+        await _storage.write(key: 'igp_username', value: phone);
+        final nick = result['nickname'] as String?;
+        _username = (nick != null && nick.isNotEmpty) ? nick : maskAccount(phone);
+        if (nick != null && nick.isNotEmpty) {
+          await _storage.write(key: 'igp_nickname', value: nick);
+        }
+        await writeToken(
+          result['token'],
+          refreshToken: result['refresh_token'],
+          expiresIn: result['expires_in'],
+        );
+
+        _logManager.addLog('iGPSPORT验证码登录成功');
+        notifyListeners();
+        return true;
+      }
+      _logManager.addLog('iGPSPORT验证码登录失败: ${result['message']}', isError: true);
+      return false;
+    } catch (e) {
+      _logManager.addLog('iGPSPORT验证码登录错误: $e', isError: true);
+      return false;
+    }
+  }
+
   Future<void> logout() async {
     await _storage.delete(key: 'igp_username');
     await _storage.delete(key: 'igp_password');

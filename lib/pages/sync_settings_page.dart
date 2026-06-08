@@ -20,6 +20,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
   bool _autoSync = false;
   bool _fixCoordinates = true;
+  bool _forceSync = false;
   int _syncInterval = 30;
 
   @override
@@ -30,9 +31,11 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
   Future<void> _loadSettings() async {
     final fixCoords = await _storage.readBoolPrefs(key: 'fix_coordinates', defaultValue: true);
+    final forceSync = await _storage.readBoolPrefs(key: 'force_sync', defaultValue: false);
     setState(() {
       _autoSync = _syncHub.autoSyncEnabled;
       _fixCoordinates = fixCoords;
+      _forceSync = forceSync;
       _syncInterval = _syncHub.syncIntervalMinutes;
     });
   }
@@ -87,6 +90,34 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               subtitle: Text('每 $_syncInterval 分钟'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showIntervalPicker(context),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: SwitchListTile(
+              secondary: Icon(
+                _forceSync ? Icons.sync_disabled : Icons.sync,
+                color: _forceSync ? Colors.red : _orange,
+              ),
+              title: const Text('强制同步'),
+              subtitle: const Text('忽略同步记录，强制重新同步所有活动'),
+              value: _forceSync,
+              onChanged: (value) {
+                setState(() => _forceSync = value);
+                _syncHub.setForceSync(value);
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+              leading: const Icon(Icons.delete_sweep_outlined, color: Colors.orange),
+              title: const Text('清除同步记录'),
+              subtitle: Text('已记录 ${_syncHub.syncRecordCount} 条同步状态'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showClearRecordsDialog(context),
             ),
           ),
           const SizedBox(height: 24),
@@ -208,6 +239,38 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             );
           }).toList(),
         ),
+      ),
+    );
+  }
+
+  void _showClearRecordsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清除同步记录'),
+        content: Text('确定要清除所有同步记录吗？\n\n'
+            '当前共有 ${_syncHub.syncRecordCount} 条记录。\n'
+            '清除后，所有活动将被重新同步。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              await _syncHub.clearSyncRecords();
+              Navigator.pop(ctx);
+              setState(() {});
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('同步记录已清除')),
+                );
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('清除'),
+          ),
+        ],
       ),
     );
   }

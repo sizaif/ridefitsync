@@ -119,11 +119,54 @@ class OneLapManager extends ChangeNotifier {
     }
   }
 
+  /// WebView 登录 — 用户在 WebView 内完成滑块验证后，
+  /// 由 OneLapWebViewLoginPage 回调传入拦截到的凭证
+  Future<bool> loginViaWebView({
+    required String token,
+    String? refreshToken,
+    String? uid,
+    String? nickname,
+  }) async {
+    try {
+      // 保存 token 到安全存储
+      await writeToken(token);
+
+      // 自动检测认证模式：JWT 含有 '.' 分隔符，Cookie 则没有
+      _service.token = token;
+      _service.useCookieAuth = !token.contains('.');
+
+      // 保存 refresh_token（如果有）
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await _storage.write(key: 'onelap_refresh_token', value: refreshToken);
+      }
+
+      // 保存用户信息
+      if (uid != null && uid.isNotEmpty) {
+        await _storage.write(key: 'onelap_uid', value: uid);
+      }
+      if (nickname != null && nickname.isNotEmpty) {
+        _username = nickname;
+        await _storage.write(key: 'onelap_nickname', value: nickname);
+      } else {
+        _username = 'OneLap用户';
+      }
+
+      _logManager.addLog('顽鹿网页登录成功');
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _logManager.addLog('保存顽鹿网页登录凭证失败: $e', isError: true);
+      return false;
+    }
+  }
+
   Future<void> logout() async {
     await _storage.delete(key: 'onelap_username');
     await _storage.delete(key: 'onelap_password');
     await _storage.delete(key: 'onelap_token');
     await _storage.delete(key: 'onelap_token_exp');
+    await _storage.delete(key: 'onelap_refresh_token');
+    await _storage.delete(key: 'onelap_uid');
     await _storage.delete(key: 'onelap_nickname');
     _username = null;
     _token = null;
@@ -139,6 +182,8 @@ class OneLapManager extends ChangeNotifier {
     if (_token != null &&
         (_tokenExp == null || _tokenExp == 0 || _tokenExp! > nowTime)) {
       _service.token = _token!;
+      // 自动检测认证模式：JWT 含有 '.' 分隔符，Cookie 则没有
+      _service.useCookieAuth = !_token!.contains('.');
       return true;
     }
 
@@ -179,6 +224,11 @@ class OneLapManager extends ChangeNotifier {
     final activities = await _service.getActivities(_lastSyncDate);
     _logManager.addLog('获取到 ${activities.length} 个顽鹿活动');
     return activities;
+  }
+
+  // 上传FIT文件到顽鹿（暂未实现，预留接口）
+  Future<void> uploadFitFile(Uint8List fitBytes, String fileName) async {
+    throw UnimplementedError('上传到顽鹿功能尚未实现');
   }
 
   // 下载FIT文件

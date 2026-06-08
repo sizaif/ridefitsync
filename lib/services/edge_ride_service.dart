@@ -49,10 +49,18 @@ class EdgeRideService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data['code']?.toString() == '100') {
+        final code = data['code'];
+        final msg = data['msg'] ?? data['message'] ?? '';
+
+        // 兼容多种成功状态码: 100, '100', 0, '0', 200, '200'
+        if (code == 100 || code == '100' || code == 0 || code == '0' || code == 200 || code == '200') {
           return {'success': true};
         }
-        return {'success': false, 'message': data['msg'] ?? '发送验证码失败'};
+
+        // 如果 HTTP 200 但 code 不是已知的成功码，仍然可能成功（手机已收到验证码）
+        // 打印详细信息以便调试
+        print('[EdgeRide] sendSmsCode response: code=$code, msg=$msg');
+        return {'success': false, 'message': msg.isNotEmpty ? msg : '发送验证码失败 (code=$code)'};
       }
       return {'success': false, 'message': 'HTTP Error: ${response.statusCode}'};
     } catch (e) {

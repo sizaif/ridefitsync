@@ -21,11 +21,27 @@ class OneLapService {
 
   String? _token;
   String? _uid;
+  bool _useCookieAuth = false;
+
   set token(String value) {
     _token = value;
   }
 
+  /// 是否使用 Cookie 认证（而非 Authorization 头）
+  set useCookieAuth(bool value) {
+    _useCookieAuth = value;
+  }
+
   bool get isLoggedIn => _token != null;
+
+  /// 构建认证请求头，支持 JWT token 和 Cookie 两种模式
+  Map<String, String> _authHeaders() {
+    if (_token == null) return {};
+    if (_useCookieAuth) {
+      return {'Cookie': 'onelap_web_session=$_token'};
+    }
+    return {'Authorization': _token!};
+  }
 
   /// 测试网络连接
   Future<Map<String, dynamic>> testConnection() async {
@@ -138,7 +154,7 @@ class OneLapService {
       final response = await AppHttpClient.post(
         Uri.parse(_activityListUrl),
         headers: {
-          'Authorization': _token!,
+          ..._authHeaders(),
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
@@ -167,7 +183,7 @@ class OneLapService {
     for (var activity in activities) {
       final response = await AppHttpClient.get(
         Uri.parse(_activityListDetailUrl + activity['id'].toString()),
-        headers: {'Authorization': _token!},
+        headers: _authHeaders(),
       );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -190,7 +206,7 @@ class OneLapService {
 
     final response = await AppHttpClient.get(
       Uri.parse(_otmUrl + base64Encode(utf8.encode(fileKey))),
-      headers: {'Authorization': _token!},
+      headers: _authHeaders(),
     );
 
     if (response.statusCode == 200) {
@@ -206,7 +222,7 @@ class OneLapService {
 
     final response = await AppHttpClient.get(
       Uri.parse('$_activityListDetailUrl$activityId'),
-      headers: {'Authorization': _token!},
+      headers: _authHeaders(),
     );
 
     if (response.statusCode == 200) {

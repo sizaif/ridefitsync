@@ -16,6 +16,8 @@ class XingzheService {
   static const String _loginUrl = '$_baseUrl/user/login/';
   static const String _uploadUrl = '$_baseUrl/fit/upload/';
   static const String _activityListUrl = '$_baseUrl/pgworkout/';
+  static const String _sendSmsUrl = '$_baseUrl/mobile/send_sms/';
+  static const String _smsLoginUrl = '$_baseUrl/user/mobile/login/';
 
   // 行者 RSA 公钥（用于密码加密）
   // 来自 IGPSPORT2XingZhe/ActivitySync.py
@@ -143,6 +145,102 @@ WpJmn7JfXB4HTMWjPVoyRZmSYjW4L8GrWmh51Qj7DwpTADadF3aq04o+s1b8LXJa
           'message': 'HTTP Error: ${response.statusCode}',
         };
       }
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  /// 发送短信验证码
+  /// POST /api/v1/mobile/send_sms/
+  /// payload: {mobile, biz_type: "xingzhe_app_login"}
+  Future<Map<String, dynamic>> sendSmsCode(String mobile) async {
+    try {
+      final response = await http.post(
+        Uri.parse(_sendSmsUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'mobile': mobile,
+          'biz_type': 'xingzhe_app_login',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['code'] == 0) {
+          return {'success': true, 'message': data['msg'] ?? '发送成功'};
+        }
+        return {'success': false, 'message': data['msg'] ?? '发送失败'};
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  /// 短信验证码登录
+  /// POST /api/v1/mobile/login/
+  /// payload: {mobile, code, biz_type: "xingzhe_app_login"}
+  Future<Map<String, dynamic>> loginBySmsCode(String mobile, String code) async {
+    try {
+      final response = await http.post(
+        Uri.parse(_smsLoginUrl),
+        headers: {
+          'Content-Type': 'application/json;charset=UTF-8',
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin': 'https://www.imxingzhe.com',
+          'Referer': 'https://www.imxingzhe.com/login',
+        },
+        body: jsonEncode({
+          'mobile': mobile,
+          'code': code,
+          'biz_type': 'xingzhe_app_login',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        if (data is Map && data['code'] == 0) {
+          final userData = data['data'];
+          if (userData != null && userData is Map) {
+            // 从 set-cookie 中获取 sessionid
+            final cookies = response.headers['set-cookie'];
+            if (cookies != null) {
+              final sessionMatch = RegExp(r'sessionid=([^;]+)').firstMatch(cookies);
+              if (sessionMatch != null) {
+                _sessionId = sessionMatch.group(1);
+                return {
+                  'success': true,
+                  'token': _sessionId,
+                  'userid': userData['userid'],
+                  'username': userData['username'],
+                  'enuid': userData['enuid'],
+                };
+              }
+            }
+
+            if (userData.containsKey('enuid')) {
+              _sessionId = userData['enuid'];
+              return {
+                'success': true,
+                'token': _sessionId,
+                'userid': userData['userid'],
+                'username': userData['username'],
+              };
+            }
+          }
+        }
+
+        return {
+          'success': false,
+          'message': data['msg'] ?? '登录失败',
+        };
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}'};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     }

@@ -25,12 +25,19 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _syncHub = SyncHub();
   final _localeManager = LocaleManager();
+  String _version = '';
 
   @override
   void initState() {
     super.initState();
     _syncHub.addListener(_onSyncHubChanged);
     _localeManager.addListener(_onSyncHubChanged);
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final v = await AppUpgrader.getVersion();
+    if (mounted) setState(() => _version = v);
   }
 
   @override
@@ -42,6 +49,42 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _onSyncHubChanged() {
     setState(() {});
+  }
+
+  // --- 登出 ---
+
+  Future<void> _logoutPlatform(String platform, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(S.current.logoutTitle(name)),
+        content: Text(S.current.logoutConfirm(name)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.current.cancel)),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(S.current.logout, style: const TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    switch (platform) {
+      case 'onelap': await _syncHub.onelapManager.logout(); break;
+      case 'strava': await _syncHub.stravaManager.logout(); break;
+      case 'igp': await _syncHub.igpManager.logout(); break;
+      case 'xingzhe': await _syncHub.xingzheManager.logout(); break;
+      case 'giant': await _syncHub.giantManager.logout(); break;
+      case 'garmin': await _syncHub.garminManager.logout(); break;
+      case 'edge_ride': await _syncHub.edgeRideManager.logout(); break;
+    }
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.current.loggedOut(name))),
+      );
+    }
   }
 
   Future<void> _openLogin(String platform) async {
@@ -136,6 +179,20 @@ class _SettingsPageState extends State<SettingsPage> {
 
           // === 上传目标平台 ===
           _buildSectionHeader(theme, S.current.uploadTargetPlatform),
+          _buildUploadTargetTile(
+            theme,
+            letter: 'W',
+            color: const Color(0xFF0155FF),
+            title: S.current.onelap,
+            subtitle: S.current.platformSubtitle('onelap') != '' ? S.current.platformSubtitle('onelap') : S.current.cyclingActivities,
+            platform: 'onelap',
+            isLoggedIn: _syncHub.onelapLoggedIn,
+            username: _syncHub.onelapManager.username,
+            isEnabled: _syncHub.enableOnelap,
+            onToggle: (v) => _syncHub.setEnableOnelap(v),
+            isSource: _syncHub.dataSource == 'onelap',
+          ),
+          const SizedBox(height: 10),
           _buildUploadTargetTile(
             theme,
             letter: 'S',
@@ -275,7 +332,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ListTile(
                   leading: const Icon(Icons.info_outline, color: _orange),
                   title: Text(S.current.version),
-                  trailing: Text(AppUpgrader.currentVersion),
+                  trailing: Text(_version),
                   onTap: () => AppUpgrader.checkUpgrade(context),
                 ),
                 Divider(height: 1, color: theme.dividerColor),
@@ -425,39 +482,62 @@ class _SettingsPageState extends State<SettingsPage> {
     required ValueChanged<bool> onToggle,
     required bool isSource,
   }) {
+    final tile = ListTile(
+      leading: _buildLetterIcon(letter: letter, color: color),
+      title: Text(title),
+      subtitle: Text(
+        isSource
+            ? S.current.cannotBeTarget
+            : (isLoggedIn ? (username ?? S.current.connected) : '$subtitle · ${S.current.clickToLogin}'),
+      ),
+      trailing: isSource
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                S.current.dataSource,
+                style: TextStyle(
+                  color: theme.hintColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          : Switch(
+              value: isEnabled,
+              onChanged: onToggle,
+            ),
+      onTap: (isSource || isLoggedIn)
+          ? null
+          : () => _openLogin(platform),
+    );
+
+    // 未登录 → 简单卡片
+    if (!isLoggedIn) {
+      return Card(clipBehavior: Clip.antiAlias, child: tile);
+    }
+
+    // 已登录 → 卡片 + 登出按钮
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        leading: _buildLetterIcon(letter: letter, color: color),
-        title: Text(title),
-        subtitle: Text(
-          isSource
-              ? S.current.cannotBeTarget
-              : (isLoggedIn ? (username ?? S.current.connected) : '$subtitle · ${S.current.clickToLogin}'),
-        ),
-        trailing: isSource
-            ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  S.current.dataSource,
-                  style: TextStyle(
-                    color: theme.hintColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              )
-            : Switch(
-                value: isEnabled,
-                onChanged: onToggle,
-              ),
-        onTap: (isSource || isLoggedIn)
-            ? null
-            : () => _openLogin(platform),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          tile,
+          Divider(height: 1, color: theme.dividerColor),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.logout, size: 18, color: Colors.red),
+            title: Text(
+              S.current.logoutTitle(title),
+              style: const TextStyle(color: Colors.red, fontSize: 13),
+            ),
+            onTap: () => _logoutPlatform(platform, title),
+          ),
+        ],
       ),
     );
   }

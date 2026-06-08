@@ -87,6 +87,45 @@ class XingzheManager extends ChangeNotifier {
     }
   }
 
+  /// 发送短信验证码
+  Future<bool> sendSmsCode(String phone) async {
+    try {
+      final result = await _service.sendSmsCode(phone);
+      if (result['success'] == true) {
+        _logManager.addLog('行者验证码已发送到 $phone');
+        return true;
+      }
+      _logManager.addLog('行者发送验证码失败: ${result['message']}', isError: true);
+      return false;
+    } catch (e) {
+      _logManager.addLog('行者发送验证码错误: $e', isError: true);
+      return false;
+    }
+  }
+
+  /// 短信验证码登录
+  Future<bool> loginBySmsCode(String phone, String code) async {
+    try {
+      final result = await _service.loginBySmsCode(phone, code);
+      if (result['success'] == true) {
+        await _saveSession(
+          result['token'],
+          userId: result['userid'],
+          username: phone,
+          nickname: result['username'],
+        );
+        _logManager.addLog('行者验证码登录成功: ${result['username'] ?? phone}');
+        notifyListeners();
+        return true;
+      }
+      _logManager.addLog('行者验证码登录失败: ${result['message']}', isError: true);
+      return false;
+    } catch (e) {
+      _logManager.addLog('行者验证码登录错误: $e', isError: true);
+      return false;
+    }
+  }
+
   Future<void> logout() async {
     await _storage.delete(key: 'xingzhe_username');
     await _storage.delete(key: 'xingzhe_password');

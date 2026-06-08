@@ -92,70 +92,234 @@ class CoordinateConverter {
     return [newLat, newLng];
   }
 
+  /// WGS-84 转换为 GCJ-02
+  static List<double> wgs2Gcj(double wgsLat, double wgsLng) {
+    if (outOfChina(wgsLat, wgsLng)) {
+      return [wgsLat, wgsLng];
+    }
+
+    List<double> d = _delta(wgsLat, wgsLng);
+    return [wgsLat + d[0], wgsLng + d[1]];
+  }
+
+  /// 检测单个坐标是否为 WGS-84 格式
+  /// 返回 true 表示坐标是 WGS-84（不需要纠正）
+  /// 返回 false 表示坐标可能是 GCJ-02（需要纠正）
+  static bool _isSingleCoordLikelyWGS84(double lat, double lng) {
+    // 中国境外不需要纠正
+    if (outOfChina(lat, lng)) {
+      return true;
+    }
+
+    // 双向转换比较
+    List<double> asWgs2Gcj = wgs2Gcj(lat, lng);
+    List<double> asGcj2Wgs = gcj2WGSExact(lat, lng);
+
+    // 计算两种转换的偏移量（单位：度）
+    double offsetIfWgs = _distance(lat, lng, asWgs2Gcj[0], asWgs2Gcj[1]);
+    double offsetIfGcj = _distance(lat, lng, asGcj2Wgs[0], asGcj2Wgs[1]);
+
+    // 当输入是 WGS-84 时：
+    //   offsetIfWgs = GCJ-02 的偏移量（约 500 米）
+    //   offsetIfGcj = 很小（因为 gcj2Wgs 对 WGS-84 坐标几乎不变）
+    // 当输入是 GCJ-02 时：
+    //   offsetIfWgs = 很小（因为 wgs2Gcj 对 GCJ-02 坐标几乎不变）
+    //   offsetIfGcj = GCJ-02 的偏移量（约 500 米）
+    return offsetIfWgs > offsetIfGcj;
+  }
+
+  /// 检测坐标是否为 WGS-84 格式（单点版本）
+  static bool isLikelyWGS84(double lat, double lng) {
+    return _isSingleCoordLikelyWGS84(lat, lng);
+  }
+
+  /// 检测坐标是否为 WGS-84 格式（多点投票增强版）
+  /// 通过多个坐标点投票来提高判断准确性
+  ///
+  /// [coords] 坐标列表，每个元素为 [lat, lng]
+  /// [minSamples] 最少需要的样本数量（默认 3 个）
+  /// [maxSamples] 最多使用的样本数量（默认 10 个）
+  ///
+  /// 返回 true 表示坐标是 WGS-84（不需要纠正）
+  /// 返回 false 表示坐标可能是 GCJ-02（需要纠正）
+  /// 返回 null 表示没有足够的有效坐标点进行判断
+  static bool? isLikelyWGS84Enhanced(
+    List<List<double>> coords, {
+    int minSamples = 3,
+    int maxSamples = 10,
+  }) {
+    if (coords.isEmpty) return null;
+
+    // 过滤出中国境内的有效坐标点
+    final validCoords = <List<double>>[];
+    for (var coord in coords) {
+      if (coord.length >= 2) {
+        final lat = coord[0];
+        final lng = coord[1];
+        if (!outOfChina(lat, lng)) {
+          validCoords.add(coord);
+          if (validCoords.length >= maxSamples) break;
+        }
+      }
+    }
+
+    // 如果没有中国境内的坐标点，说明都是国外的，不需要纠正
+    if (validCoords.isEmpty) {
+      return true;
+    }
+
+    // 如果样本数量不足，使用单点判断
+    if (validCoords.length < minSamples) {
+      return _isSingleCoordLikelyWGS84(validCoords[0][0], validCoords[0][1]);
+    }
+
+    // 多点投票
+    int wgsVotes = 0;
+    int gcjVotes = 0;
+
+    for (var coord in validCoords) {
+      if (_isSingleCoordLikelyWGS84(coord[0], coord[1])) {
+        wgsVotes++;
+      } else {
+        gcjVotes++;
+      }
+    }
+
+    // 多数投票决定结果
+    return wgsVotes > gcjVotes;
+  }
+
+  /// 计算两个经纬度点之间的距离（单位：度）
+  static double _distance(double lat1, double lng1, double lat2, double lng2) {
+    double dLat = lat2 - lat1;
+    double dLng = lng2 - lng1;
+    return math.sqrt(dLat * dLat + dLng * dLng);
+  }
+
   static double max(double a, double b) => a > b ? a : b;
 }
 
 class CoordFixer {
-  static void _updateCoords(
+  /// 最后一次检测结果：true 表示 WGS-84（不需要纠正），false 表示 GCJ-02（已纠正）
+  static bool? lastDetectionResult;
+
+  /// 最后一次检测使用的样本数量
+  static int lastSampleCount = 0;
+
+  /// 对坐标进行 GCJ-02 → WGS-84 纠正
+  static void _fixCoords(
     double? latField,
     double? lngField,
     void Function(double lat, double lng) onUpdate,
   ) {
     if (latField != null && lngField != null) {
       List<double> wgs84 = CoordinateConverter.gcj2WGSExact(latField, lngField);
-      onUpdate((wgs84[0]), (wgs84[1]));
+      onUpdate(wgs84[0], wgs84[1]);
     }
+  }
+
+  /// 从 FIT 文件中提取多个有效坐标点用于检测
+  static List<List<double>> _extractCoords(FitFile fitFile, {int maxSamples = 10}) {
+    final coords = <List<double>>[];
+    for (var record in fitFile.records) {
+      if (coords.length >= maxSamples) break;
+      final msg = record.message;
+      switch (msg) {
+        case RecordMessage m:
+          if (m.positionLat != null && m.positionLong != null) {
+            coords.add([m.positionLat!, m.positionLong!]);
+          }
+        case CoursePointMessage m:
+          if (m.positionLat != null && m.positionLong != null) {
+            coords.add([m.positionLat!, m.positionLong!]);
+          }
+        case SegmentPointMessage m:
+          if (m.positionLat != null && m.positionLong != null) {
+            coords.add([m.positionLat!, m.positionLong!]);
+          }
+        case SegmentLapMessage m:
+          if (m.startPositionLat != null && m.startPositionLong != null) {
+            coords.add([m.startPositionLat!, m.startPositionLong!]);
+          }
+        case LapMessage m:
+          if (m.startPositionLat != null && m.startPositionLong != null) {
+            coords.add([m.startPositionLat!, m.startPositionLong!]);
+          }
+        case SessionMessage m:
+          if (m.startPositionLat != null && m.startPositionLong != null) {
+            coords.add([m.startPositionLat!, m.startPositionLong!]);
+          }
+        default:
+          break;
+      }
+    }
+    return coords;
   }
 
   static Future<Uint8List> processFitBytes(Uint8List fitBytes) async {
     final fitFile = FitFile.fromBytes(fitBytes);
 
+    // 检测坐标格式：提取多个有效坐标点进行投票检测
+    final coords = _extractCoords(fitFile);
+    lastSampleCount = coords.length;
+    if (coords.isNotEmpty) {
+      final isWgs84 = CoordinateConverter.isLikelyWGS84Enhanced(coords);
+      lastDetectionResult = isWgs84;
+      if (isWgs84 == true) {
+        // 坐标已经是 WGS-84，不需要纠正
+        return fitBytes;
+      }
+    } else {
+      lastDetectionResult = null; // 无坐标数据
+    }
+
+    // 坐标是 GCJ-02 或无法确定，进行纠正
     for (var record in fitFile.records) {
       final msg = record.message;
       switch (msg) {
         case RecordMessage m:
-          _updateCoords(m.positionLat, m.positionLong, (la, lo) {
+          _fixCoords(m.positionLat, m.positionLong, (la, lo) {
             m.positionLat = la;
             m.positionLong = lo;
           });
         case CoursePointMessage m:
-          _updateCoords(m.positionLat, m.positionLong, (la, lo) {
+          _fixCoords(m.positionLat, m.positionLong, (la, lo) {
             m.positionLat = la;
             m.positionLong = lo;
           });
         case SegmentPointMessage m:
-          _updateCoords(m.positionLat, m.positionLong, (la, lo) {
+          _fixCoords(m.positionLat, m.positionLong, (la, lo) {
             m.positionLat = la;
             m.positionLong = lo;
           });
         case SegmentLapMessage m:
-          _updateCoords(m.startPositionLat, m.startPositionLong, (la, lo) {
+          _fixCoords(m.startPositionLat, m.startPositionLong, (la, lo) {
             m.startPositionLat = la;
             m.startPositionLong = lo;
           });
-          _updateCoords(m.endPositionLat, m.endPositionLong, (la, lo) {
+          _fixCoords(m.endPositionLat, m.endPositionLong, (la, lo) {
             m.endPositionLat = la;
             m.endPositionLong = lo;
           });
         case LapMessage m:
-          _updateCoords(m.startPositionLat, m.startPositionLong, (la, lo) {
+          _fixCoords(m.startPositionLat, m.startPositionLong, (la, lo) {
             m.startPositionLat = la;
             m.startPositionLong = lo;
           });
-          _updateCoords(m.endPositionLat, m.endPositionLong, (la, lo) {
+          _fixCoords(m.endPositionLat, m.endPositionLong, (la, lo) {
             m.endPositionLat = la;
             m.endPositionLong = lo;
           });
         case SessionMessage m:
-          _updateCoords(m.startPositionLat, m.startPositionLong, (la, lo) {
+          _fixCoords(m.startPositionLat, m.startPositionLong, (la, lo) {
             m.startPositionLat = la;
             m.startPositionLong = lo;
           });
-          _updateCoords(m.necLat, m.necLong, (la, lo) {
+          _fixCoords(m.necLat, m.necLong, (la, lo) {
             m.necLat = la;
             m.necLong = lo;
           });
-          _updateCoords(m.swcLat, m.swcLong, (la, lo) {
+          _fixCoords(m.swcLat, m.swcLong, (la, lo) {
             m.swcLat = la;
             m.swcLong = lo;
           });
@@ -174,6 +338,40 @@ class CoordFixer {
     final document = XmlDocument.parse(gpxString);
     const coordinateTags = ['trkpt', 'wpt', 'rtept'];
 
+    // 检测坐标格式：提取多个有效坐标点进行投票检测
+    final coords = <List<double>>[];
+    const maxSamples = 10;
+    for (var tagName in coordinateTags) {
+      if (coords.length >= maxSamples) break;
+      final elements = document.findAllElements(tagName);
+      for (var element in elements) {
+        if (coords.length >= maxSamples) break;
+        final latAttr = element.getAttribute('lat');
+        final lonAttr = element.getAttribute('lon');
+        if (latAttr != null && lonAttr != null) {
+          double? lat = double.tryParse(latAttr);
+          double? lng = double.tryParse(lonAttr);
+          if (lat != null && lng != null) {
+            coords.add([lat, lng]);
+          }
+        }
+      }
+    }
+
+    // 使用多点投票检测
+    bool? isWgs84;
+    lastSampleCount = coords.length;
+    if (coords.isNotEmpty) {
+      isWgs84 = CoordinateConverter.isLikelyWGS84Enhanced(coords);
+    }
+    lastDetectionResult = isWgs84;
+
+    // 如果检测为 WGS-84，直接返回原文件
+    if (isWgs84 == true) {
+      return gpxBytes;
+    }
+
+    // 坐标是 GCJ-02，进行纠正
     for (var tagName in coordinateTags) {
       final elements = document.findAllElements(tagName);
       for (var element in elements) {
@@ -198,6 +396,37 @@ class CoordFixer {
     final document = XmlDocument.parse(tcxString);
     final allLatitudes = document.findAllElements('LatitudeDegrees');
 
+    // 检测坐标格式：提取多个有效坐标点进行投票检测
+    final coords = <List<double>>[];
+    const maxSamples = 10;
+    for (var latElem in allLatitudes) {
+      if (coords.length >= maxSamples) break;
+      final parent = latElem.parentElement;
+      if (parent == null) continue;
+      final lngElem = parent.findElements('LongitudeDegrees').firstOrNull;
+      if (lngElem != null) {
+        double? lat = double.tryParse(latElem.innerText);
+        double? lng = double.tryParse(lngElem.innerText);
+        if (lat != null && lng != null) {
+          coords.add([lat, lng]);
+        }
+      }
+    }
+
+    // 使用多点投票检测
+    bool? isWgs84;
+    lastSampleCount = coords.length;
+    if (coords.isNotEmpty) {
+      isWgs84 = CoordinateConverter.isLikelyWGS84Enhanced(coords);
+    }
+    lastDetectionResult = isWgs84;
+
+    // 如果检测为 WGS-84，直接返回原文件
+    if (isWgs84 == true) {
+      return tcxBytes;
+    }
+
+    // 坐标是 GCJ-02，进行纠正
     for (var latElem in allLatitudes) {
       final parent = latElem.parentElement;
       if (parent == null) continue;

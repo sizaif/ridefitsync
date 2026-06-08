@@ -4,6 +4,7 @@ import '../../services/onelap_service.dart';
 import '../../theme/app_theme.dart';
 import '../../l10n/strings.dart';
 import 'login_template.dart';
+import 'onelap_webview_login.dart';
 
 class OneLapLoginPage extends StatelessWidget {
   const OneLapLoginPage({super.key});
@@ -21,6 +22,49 @@ class OneLapLoginPage extends StatelessWidget {
       initialUsername: manager.username,
       onLogin: (username, password) => manager.login(username, password),
       onTestConnection: () => _testConnection(context),
+      additionalActions: _buildWebLoginButton(context, manager),
+    );
+  }
+
+  Widget _buildWebLoginButton(BuildContext context, OneLapManager manager) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () async {
+          final result = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => OneLapWebViewLoginPage(
+                onLoginSuccess: ({
+                  required String token,
+                  String? refreshToken,
+                  String? uid,
+                  String? nickname,
+                }) =>
+                    manager.loginViaWebView(
+                  token: token,
+                  refreshToken: refreshToken,
+                  uid: uid,
+                  nickname: nickname,
+                ),
+              ),
+            ),
+          );
+          if (result == true && context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(S.current.loginSuccess)),
+            );
+            Navigator.pop(context, true);
+          }
+        },
+        icon: const Icon(Icons.language, size: 18),
+        label: const Text('验证码登录'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.onelapColor,
+          side: BorderSide(color: AppTheme.onelapColor.withOpacity(0.5)),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+      ),
     );
   }
 
