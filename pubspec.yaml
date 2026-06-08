@@ -1,7 +1,7 @@
 name: ridefitsync
 description: Auto sync FIT files from OneLap OTM to Strava, iGPSPORT, Xingzhe, and Giant RideLife - by 小悟空
 publish_to: 'none'
-version: 1.1.10+1110
+version: 1.1.11+1111
 
 environment:
   sdk: ^3.11.0
