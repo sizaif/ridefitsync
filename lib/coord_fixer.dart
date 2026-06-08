@@ -189,7 +189,7 @@ class CoordinateConverter {
     return wgsVotes > gcjVotes;
   }
 
-  /// 计算两个经纬度点之间的距离（单位：度）
+  /// 计算两个经纬度点之间的欧氏距离（仅用于大小比较，非实际距离）
   static double _distance(double lat1, double lng1, double lat2, double lng2) {
     double dLat = lat2 - lat1;
     double dLng = lng2 - lng1;
@@ -271,9 +271,10 @@ class CoordFixer {
       }
     } else {
       lastDetectionResult = null; // 无坐标数据
+      return fitBytes; // 没有坐标数据，无需纠正，直接返回
     }
 
-    // 坐标是 GCJ-02 或无法确定，进行纠正
+    // 坐标是 GCJ-02，进行纠正
     for (var record in fitFile.records) {
       final msg = record.message;
       switch (msg) {
@@ -366,8 +367,8 @@ class CoordFixer {
     }
     lastDetectionResult = isWgs84;
 
-    // 如果检测为 WGS-84，直接返回原文件
-    if (isWgs84 == true) {
+    // 如果检测为 WGS-84 或无坐标数据，直接返回原文件
+    if (isWgs84 == true || coords.isEmpty) {
       return gpxBytes;
     }
 
@@ -421,8 +422,8 @@ class CoordFixer {
     }
     lastDetectionResult = isWgs84;
 
-    // 如果检测为 WGS-84，直接返回原文件
-    if (isWgs84 == true) {
+    // 如果检测为 WGS-84 或无坐标数据，直接返回原文件
+    if (isWgs84 == true || coords.isEmpty) {
       return tcxBytes;
     }
 
