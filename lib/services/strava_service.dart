@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io' show gzip;
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import 'package:archive/archive.dart';
+import 'package:http_parser/http_parser.dart';
 import '../app_storage.dart';
+import '../log_manager.dart';
 
 class StravaService {
   static const String _mobileAuthUrl =
@@ -16,6 +18,7 @@ class StravaService {
   static const String _redirectUri = 'stravaauto://localhost';
 
   final _storage = AppStorage();
+  final _log = LogManager();
 
   String? clientId;
   String? clientSecret;
@@ -217,23 +220,30 @@ class StravaService {
     if (!isAuthenticated) throw Exception('Not authenticated');
     await refreshTokenIfNeeded();
 
-    // gzip压缩
-    final compressedBytes = GZipEncoder().encode(fitBytes) as List<int>;
+    // gzip 压缩（可选：设 false 直接上传原始 FIT 排查问题）
+    const useGzip = true;
+    final uploadBytes = useGzip ? _gzipCompress(fitBytes) : fitBytes;
+    final uploadFilename = useGzip
+        ? '${fileName.endsWith(".fit") ? fileName : "$fileName.fit"}.gz'
+        : (fileName.endsWith('.fit') ? fileName : '$fileName.fit');
+    _log.addLog('Strava upload: ${fitBytes.length} → ${uploadBytes.length} bytes'
+        '${useGzip ? " (gzip)" : " (raw)"}');
 
     var request = http.MultipartRequest('POST', Uri.parse(_uploadUrl));
     request.headers['Authorization'] = 'Bearer $accessToken';
 
-    // 确保文件名有.gz后缀
-    final baseName = fileName.endsWith('.fit') ? fileName : '$fileName.fit';
     request.files.add(
       http.MultipartFile.fromBytes(
         'file',
-        compressedBytes,
-        filename: '$baseName.gz',
+        uploadBytes,
+        filename: uploadFilename,
+        contentType: useGzip
+            ? MediaType('application', 'gzip')
+            : MediaType('application', 'octet-stream'),
       ),
     );
 
-    request.fields['data_type'] = 'fit.gz';
+    request.fields['data_type'] = useGzip ? 'fit.gz' : 'fit';
     if (sportType != null && sportType != 'Default') {
       request.fields['activity_type'] = sportType;
     }
@@ -249,36 +259,78 @@ class StravaService {
 
     var streamedResponse = await request.send();
     var response = await http.Response.fromStream(streamedResponse);
+    _log.addLog('Strava 上传响应 HTTP ${response.statusCode}');
 
     if (response.statusCode == 201) {
       final data = jsonDecode(response.body);
+
+      if (data['error'] != null) {
+        final err = data['error'].toString();
+        _log.addLog('Strava 上传失败: $err', isError: true);
+        throw Exception(err);
+      }
+
       final uploadId = data['id'];
       final activityId = data['activity_id'];
+      final uploadStatus = data['status']?.toString() ?? '';
 
-      // 轮询上传状态（Strava 异步处理，可能需要几秒到几十秒）
-      if (uploadId != null && activityId == null) {
-        for (int i = 0; i < 24; i++) {
+      _log.addLog('Strava 上传已提交: Upload ID=$uploadId, Status=$uploadStatus'
+          '${activityId != null ? ", Activity=$activityId" : ""}');
+
+      if (activityId != null) {
+        _log.addLog('Strava 活动已生成: https://www.strava.com/activities/$activityId');
+        return 'https://www.strava.com/activities/$activityId';
+      }
+
+      // 无 activity_id 但有 upload_id → 轮询等待
+      if (uploadId != null) {
+        _log.addLog('Strava 等待后台处理 (最多60秒)...');
+        for (int i = 0; i < 12; i++) {
           await Future.delayed(const Duration(seconds: 5));
           if (!isAuthenticated) break;
           try {
             final status = await getUploadStatus(uploadId);
-            if (status?['activity_id'] != null) {
-              return 'https://www.strava.com/activities/${status!['activity_id']}';
+            if (status == null) continue;
+
+            final aid = status['activity_id'];
+            final err = status['error']?.toString();
+            final st = status['status']?.toString() ?? '';
+
+            if (aid != null) {
+              _log.addLog('Strava 轮询[$i] 成功: Activity=$aid → https://www.strava.com/activities/$aid');
+              return 'https://www.strava.com/activities/$aid';
             }
-            if (status?['error'] != null) {
-              throw Exception(status!['error']);
+
+            if (err != null && err.isNotEmpty) {
+              // Strava 可能返回纯文本或带 HTML 标签的格式:
+              //   "duplicate of /activities/123" 或 "duplicate of <a href='/activities/123'>...</a>"
+              final dupMatch = RegExp(r"/activities/(\d+)").firstMatch(err);
+              if (dupMatch != null) {
+                final dupId = dupMatch.group(1)!;
+                _log.addLog('Strava 轮询[$i] 重复活动 → https://www.strava.com/activities/$dupId');
+                return 'https://www.strava.com/activities/$dupId';
+              }
+              _log.addLog('Strava 轮询[$i] 错误: $err', isError: true);
+              throw Exception(err);
             }
+
+            // 仍在处理中
+            _log.addLog('Strava 轮询[$i]: $st');
           } catch (e) {
             if (e.toString().contains('refresh')) rethrow;
+            _log.addLog('Strava 轮询[$i] 异常: $e', isError: true);
+            throw Exception('Strava 上传处理失败: $e');
           }
         }
-        // 超时但上传可能仍在处理中
-        return 'Upload submitted (ID: $uploadId), processing...';
+        _log.addLog('Strava 轮询超时 (60秒)', isError: true);
+        throw Exception(
+          'Strava 上传超时：60秒内未完成处理。'
+          '请稍后打开 https://www.strava.com/upload/pending 查看结果',
+        );
       }
-      if (activityId != null) {
-        return 'https://www.strava.com/activities/$activityId';
-      }
-      return 'Upload successful (ID: $uploadId)';
+
+      _log.addLog('Strava 上传异常: 无 upload_id 且无 activity_id', isError: true);
+      throw Exception('Strava 上传返回异常：无 upload_id 且无 activity_id');
     }
 
     // 错误处理：尝试解析 body 中的错误信息
@@ -293,6 +345,11 @@ class StravaService {
       errorMsg = 'HTTP ${response.statusCode}';
     }
     throw Exception(errorMsg);
+  }
+
+  /// gzip 压缩，与 Python `gzip.compress(data, compresslevel=6)` 行为一致
+  List<int> _gzipCompress(List<int> bytes) {
+    return gzip.encode(bytes);
   }
 
   // 查询上传状态

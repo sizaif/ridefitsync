@@ -206,8 +206,8 @@ class FitAnalyzer {
 
     String rideTime = '';
     if (d.startTime != null) {
-      final bj = d.startTime!.toUtc().add(const Duration(hours: 8));
-      final h = bj.hour;
+      // 国产码表（MAGENE 等）FIT 时间戳存的是北京时间，直接取 hour
+      final h = d.startTime!.hour;
       if (h >= 5 && h < 9) rideTime = ascii ? 'Morning' : '晨骑';
       else if (h >= 9 && h < 12) rideTime = ascii ? 'LateMorning' : '午前骑';
       else if (h >= 12 && h < 14) rideTime = ascii ? 'Noon' : '午骑';

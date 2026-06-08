@@ -195,26 +195,28 @@ class _SharedFilePageState extends State<SharedFilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
         title: const Text('处理分享文件'),
       ),
       body: Container(
-        decoration: AppTheme.backgroundGradient,
+        decoration: isDark ? AppTheme.backgroundGradient : null,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // 文件信息卡片
-              _buildFileInfoCard()
+              _buildFileInfoCard(theme)
                   .animate()
                   .fadeIn(duration: 400.ms)
                   .slideY(begin: 0.1, end: 0),
               const SizedBox(height: 16),
               // 状态卡片
-              _buildStatusCard()
+              _buildStatusCard(theme)
                   .animate()
                   .fadeIn(duration: 400.ms, delay: 200.ms)
                   .scale(begin: const Offset(0.95, 0.95)),
@@ -226,7 +228,7 @@ class _SharedFilePageState extends State<SharedFilePage> {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white.withOpacity(0.7),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                   ),
                 ).animate().fadeIn(duration: 300.ms, delay: 300.ms),
                 const SizedBox(height: 8),
@@ -267,7 +269,7 @@ class _SharedFilePageState extends State<SharedFilePage> {
                                 child: Text(
                                   result.substring(2),
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.8),
+                                    color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
                                     fontSize: 14,
                                   ),
                                 ),
@@ -311,7 +313,7 @@ class _SharedFilePageState extends State<SharedFilePage> {
     );
   }
 
-  Widget _buildFileInfoCard() {
+  Widget _buildFileInfoCard(ThemeData theme) {
     final fileName =
         widget.fileName ?? path.basename(widget.filePath ?? '未知文件');
 
@@ -338,8 +340,8 @@ class _SharedFilePageState extends State<SharedFilePage> {
               children: [
                 Text(
                   fileName,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                   ),
@@ -348,7 +350,7 @@ class _SharedFilePageState extends State<SharedFilePage> {
                   Text(
                     widget.filePath!,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                       fontSize: 11,
                     ),
                     maxLines: 1,
@@ -362,7 +364,7 @@ class _SharedFilePageState extends State<SharedFilePage> {
     );
   }
 
-  Widget _buildStatusCard() {
+  Widget _buildStatusCard(ThemeData theme) {
     final Color borderColor;
     final Color bgColor;
     if (_isCompleted) {
@@ -419,10 +421,10 @@ class _SharedFilePageState extends State<SharedFilePage> {
           const SizedBox(height: 16),
           Text(
             _status,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
           if (_isCompleted) ...[

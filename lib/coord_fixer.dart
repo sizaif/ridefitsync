@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:fit_tool/fit_tool.dart';
 import 'package:xml/xml.dart';
 
 extension GpsFormatter on double {
@@ -93,10 +94,6 @@ class CoordinateConverter {
     return offsetIfWgs > offsetIfGcj;
   }
 
-  static bool isLikelyWGS84(double lat, double lng) {
-    return _isSingleCoordLikelyWGS84(lat, lng);
-  }
-
   static bool? isLikelyWGS84Enhanced(List<List<double>> coords, {int minSamples = 3, int maxSamples = 10}) {
     if (coords.isEmpty) return null;
 
@@ -130,345 +127,81 @@ class CoordinateConverter {
   static double max(double a, double b) => a > b ? a : b;
 }
 
-/// 坐标纠偏方向
-enum CoordDirection {
-  /// GCJ-02 → WGS-84（国内平台数据源 → 海外目标平台）
-  gcj2wgs,
-  /// WGS-84 → GCJ-02（海外平台数据源 → 国内目标平台）
-  wgs2gcj,
-}
-
-// === FIT 二进制格式常量 ===
-
-// FIT message types that contain coordinate fields
-const _MSG_RECORD = 20;
-const _MSG_SEGMENT_LAP = 34;
-const _MSG_LAP = 19;
-const _MSG_SESSION = 2;
-const _MSG_COURSE_POINT = 32;
-const _MSG_SEGMENT_POINT = 33;
-
-// Field definition numbers for coordinate fields
-const _FIELD_POSITION_LAT = 0;
-const _FIELD_POSITION_LONG = 1;
-const _FIELD_START_POSITION_LAT = 0;
-const _FIELD_START_POSITION_LONG = 1;
-const _FIELD_END_POSITION_LAT = 2;
-const _FIELD_END_POSITION_LONG = 3;
-const _FIELD_NEC_LAT = 4;
-const _FIELD_NEC_LONG = 5;
-const _FIELD_SWC_LAT = 6;
-const _FIELD_SWC_LONG = 7;
-
-/// semcircles → degrees
-double _semicirclesToDeg(int sc) => sc * (180.0 / 0x80000000);
-
-/// degrees → semcircles
-int _degToSemicircles(double deg) => (deg * (0x80000000 / 180.0)).round();
-
-/// FIT CRC 查表
-final List<int> _fitCrcTable = _buildFitCrcTable();
-
-List<int> _buildFitCrcTable() {
-  final table = List<int>.filled(256, 0);
-  for (int i = 0; i < 256; i++) {
-    int crc = i;
-    for (int j = 0; j < 8; j++) {
-      if (crc & 1 != 0) {
-        crc = (crc >> 1) ^ 0xEDB88320;
-      } else {
-        crc >>= 1;
-      }
-    }
-    table[i] = crc;
-  }
-  return table;
-}
-
-int _fitCrcUpdate(int crc, Uint8List data) {
-  for (final b in data) {
-    crc = _fitCrcTable[(crc ^ b) & 0xFF] ^ (crc >> 8);
-  }
-  return crc & 0xFFFF;
-}
-
-/// FIT 定义消息中一个字段的定义
-class _FitFieldDef {
-  final int defNum;
-  final int size;
-  final int baseType;
-  _FitFieldDef(this.defNum, this.size, this.baseType);
-}
-
-/// 缓存的 FIT 定义消息，用于解析后续数据消息
-class _FitDefMsg {
-  final int localMsgType;
-  final int globalMsgNum;
-  final List<_FitFieldDef> fields;
-  int totalFieldDataSize = 0;
-
-  _FitDefMsg(this.localMsgType, this.globalMsgNum, this.fields) {
-    for (var f in fields) {
-      totalFieldDataSize += f.size;
-    }
-  }
-}
-
-/// 需要 patch 的坐标字段信息
-class _CoordFieldPatch {
-  final int defNum;  // e.g. 0 for position_lat
-  final int latDefNum; // paired lat def_num
-  _CoordFieldPatch(this.defNum, {required this.latDefNum});
-}
-
-/// 根据 global message number 返回需要纠正的坐标字段列表
-List<_CoordFieldPatch>? _coordFieldsForMsg(int globalMsgNum) {
-  switch (globalMsgNum) {
-    case _MSG_RECORD:
-    case _MSG_COURSE_POINT:
-      return [
-        _CoordFieldPatch(_FIELD_POSITION_LAT, latDefNum: _FIELD_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_POSITION_LONG, latDefNum: _FIELD_POSITION_LAT),
-      ];
-    case _MSG_SEGMENT_LAP:
-      return [
-        _CoordFieldPatch(_FIELD_START_POSITION_LAT, latDefNum: _FIELD_START_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_START_POSITION_LONG, latDefNum: _FIELD_START_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_END_POSITION_LAT, latDefNum: _FIELD_END_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_END_POSITION_LONG, latDefNum: _FIELD_END_POSITION_LAT),
-      ];
-    case _MSG_LAP:
-      return [
-        _CoordFieldPatch(_FIELD_START_POSITION_LAT, latDefNum: _FIELD_START_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_START_POSITION_LONG, latDefNum: _FIELD_START_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_END_POSITION_LAT, latDefNum: _FIELD_END_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_END_POSITION_LONG, latDefNum: _FIELD_END_POSITION_LAT),
-      ];
-    case _MSG_SESSION:
-      return [
-        _CoordFieldPatch(_FIELD_START_POSITION_LAT, latDefNum: _FIELD_START_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_START_POSITION_LONG, latDefNum: _FIELD_START_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_NEC_LAT, latDefNum: _FIELD_NEC_LAT),
-        _CoordFieldPatch(_FIELD_NEC_LONG, latDefNum: _FIELD_NEC_LAT),
-        _CoordFieldPatch(_FIELD_SWC_LAT, latDefNum: _FIELD_SWC_LAT),
-        _CoordFieldPatch(_FIELD_SWC_LONG, latDefNum: _FIELD_SWC_LAT),
-      ];
-    case _MSG_SEGMENT_POINT:
-      return [
-        _CoordFieldPatch(_FIELD_POSITION_LAT, latDefNum: _FIELD_POSITION_LAT),
-        _CoordFieldPatch(_FIELD_POSITION_LONG, latDefNum: _FIELD_POSITION_LAT),
-      ];
-    default:
-      return null;
-  }
-}
+enum CoordDirection { gcj2wgs, wgs2gcj }
 
 class CoordFixer {
   static bool? lastDetectionResult;
   static int lastSampleCount = 0;
 
-  /// 从 FIT 二进制提取坐标用于检测
-  static List<List<double>> _extractCoordsFromBinary(Uint8List fitBytes, {int maxSamples = 10}) {
+  /// 从 FIT 提取坐标样本（使用 fit_tool 解析）
+  static List<List<double>> _extractCoordsFromFit(Uint8List fitBytes, {int maxSamples = 10}) {
     final coords = <List<double>>[];
-    if (fitBytes.length < 14) return coords;
-
-    final headerSize = fitBytes[0];
-    final dataSize = ByteData.sublistView(fitBytes, 4, 8).getUint32(0, Endian.little);
-    final bodyEnd = headerSize + dataSize;
-
-    // 第一遍：扫描定义消息，建立缓存
-    final defMsgs = <int, _FitDefMsg>{}; // localMsgType → def
-    int pos = headerSize;
-    while (pos < bodyEnd) {
-      final recHeader = fitBytes[pos];
-      final isDef = (recHeader & 0x40) != 0; // bit 6 = definition message
-      final localMsgType = recHeader & 0x0F;
-
-      if (isDef) {
-        // Definition message structure:
-        //   [0]: record header
-        //   [1]: reserved
-        //   [2]: endian (0=LE, 1=BE)
-        //   [3:5]: global message number (uint16 LE)
-        //   [5]: num fields
-        //   [6+]: field definitions (3 bytes each)
-        if (pos + 6 > bodyEnd) break;
-        final numFields = fitBytes[pos + 5];
-        final globalMsgNum = ByteData.sublistView(fitBytes, pos + 3, pos + 5).getUint16(0, Endian.little);
-        final fields = <_FitFieldDef>[];
-        for (int i = 0; i < numFields; i++) {
-          final offset = pos + 6 + i * 3;
-          if (offset + 3 > bodyEnd) break;
-          fields.add(_FitFieldDef(fitBytes[offset], fitBytes[offset + 1], fitBytes[offset + 2]));
-        }
-        defMsgs[localMsgType] = _FitDefMsg(localMsgType, globalMsgNum, fields);
-        pos += 6 + numFields * 3;
-      } else {
-        // Data message — use cached definition
-        final def = defMsgs[localMsgType];
-        if (def == null || _coordFieldsForMsg(def.globalMsgNum) == null) {
-          pos++;
-          if (def != null) pos += def.totalFieldDataSize;
-          continue;
-        }
-        pos++; // skip record header
-
-        // Read position_lat (def_num=0) and position_long (def_num=1) if available
-        int? latSemi, lngSemi;
-        int fieldOffset = pos;
-        for (var field in def.fields) {
-          if (field.defNum == _FIELD_POSITION_LAT || field.defNum == _FIELD_START_POSITION_LAT) {
-            if (field.size == 4 && fieldOffset + 4 <= bodyEnd) {
-              latSemi = ByteData.sublistView(fitBytes, fieldOffset, fieldOffset + 4).getInt32(0, Endian.little);
-            }
+    try {
+      for (var record in FitFile.fromBytes(fitBytes).records) {
+        final msg = record.message;
+        if (msg is RecordMessage) {
+          if (msg.positionLat != null && msg.positionLong != null) {
+            coords.add([msg.positionLat!, msg.positionLong!]);
+            if (coords.length >= maxSamples) break;
           }
-          if (field.defNum == _FIELD_POSITION_LONG || field.defNum == _FIELD_START_POSITION_LONG) {
-            if (field.size == 4 && fieldOffset + 4 <= bodyEnd) {
-              lngSemi = ByteData.sublistView(fitBytes, fieldOffset, fieldOffset + 4).getInt32(0, Endian.little);
-            }
-          }
-          fieldOffset += field.size;
-        }
-        pos += def.totalFieldDataSize;
-
-        if (latSemi != null && lngSemi != null && latSemi != 0x80000000 && lngSemi != 0x80000000) {
-          coords.add([_semicirclesToDeg(latSemi), _semicirclesToDeg(lngSemi)]);
-          if (coords.length >= maxSamples) break;
         }
       }
-    }
+    } catch (_) {}
     return coords;
   }
 
-  /// 二进制级别 patch FIT 文件坐标
-  /// [direction] 纠偏方向：gcj2wgs (GCJ→WGS) 或 wgs2gcj (WGS→GCJ)
-  static Uint8List _patchFitBinary(Uint8List fitBytes, CoordDirection direction) {
-    final result = Uint8List.fromList(fitBytes);
-    if (result.length < 14) return result;
+  /// 使用 fit_tool 纠正 FIT 坐标（与 ref/strava_auto 一致，自动 CRC）
+  static Uint8List _correctFit(Uint8List fitBytes, CoordDirection direction) {
+    final fitFile = FitFile.fromBytes(fitBytes);
+    final isGcj2Wgs = direction == CoordDirection.gcj2wgs;
 
-    final headerSize = result[0];
-    final dataSize = ByteData.sublistView(result, 4, 8).getUint32(0, Endian.little);
-    final bodyEnd = headerSize + dataSize;
-
-    // 第一遍：扫描定义消息
-    final defMsgs = <int, _FitDefMsg>{};
-    int pos = headerSize;
-    while (pos < bodyEnd) {
-      final recHeader = result[pos];
-      final isDef = (recHeader & 0x40) != 0;
-      final localMsgType = recHeader & 0x0F;
-
-      if (isDef) {
-        if (pos + 6 > bodyEnd) break;
-        final numFields = result[pos + 5];
-        final globalMsgNum = ByteData.sublistView(result, pos + 3, pos + 5).getUint16(0, Endian.little);
-        final fields = <_FitFieldDef>[];
-        for (int i = 0; i < numFields; i++) {
-          final offset = pos + 6 + i * 3;
-          if (offset + 3 > bodyEnd) break;
-          fields.add(_FitFieldDef(result[offset], result[offset + 1], result[offset + 2]));
-        }
-        defMsgs[localMsgType] = _FitDefMsg(localMsgType, globalMsgNum, fields);
-        pos += 6 + numFields * 3;
-      } else {
-        // Data message — patch coordinate fields
-        final def = defMsgs[localMsgType];
-        if (def == null) {
-          pos++; // no definition, skip
-          continue;
-        }
-        final coordFields = _coordFieldsForMsg(def.globalMsgNum);
-
-        if (coordFields == null) {
-          pos += 1 + def.totalFieldDataSize;
-          continue;
-        }
-
-        final dataStart = pos + 1; // skip record header
-
-        // Build (latDefNum, lngDefNum) pairs from coord field list
-        for (int i = 0; i < coordFields.length; i += 2) {
-          final latField = coordFields[i];
-          final lngField = (i + 1 < coordFields.length) ? coordFields[i + 1] : null;
-          if (lngField == null) break;
-
-          // Find offsets in data for paired lat/lng fields
-          int? latOff, lngOff;
-          int off = dataStart;
-          for (var fd in def.fields) {
-            if (fd.defNum == latField.defNum && fd.size == 4) latOff = off;
-            if (fd.defNum == lngField.defNum && fd.size == 4) lngOff = off;
-            off += fd.size;
-          }
-
-          if (latOff != null && lngOff != null &&
-              latOff + 4 <= bodyEnd && lngOff + 4 <= bodyEnd) {
-            final latSemi = ByteData.sublistView(result, latOff, latOff + 4).getInt32(0, Endian.little);
-            final lngSemi = ByteData.sublistView(result, lngOff, lngOff + 4).getInt32(0, Endian.little);
-
-            // 0x80000000 is the invalid/missing value for semicircles
-            if (latSemi != 0x80000000 && lngSemi != 0x80000000) {
-              final latDeg = _semicirclesToDeg(latSemi);
-              final lngDeg = _semicirclesToDeg(lngSemi);
-              final corrected = direction == CoordDirection.gcj2wgs
-                  ? CoordinateConverter.gcj2WGSExact(latDeg, lngDeg)
-                  : CoordinateConverter.wgs2Gcj(latDeg, lngDeg);
-              final newLatSemi = _degToSemicircles(corrected[0]);
-              final newLngSemi = _degToSemicircles(corrected[1]);
-
-              final bd = ByteData.sublistView(result);
-              bd.setInt32(latOff, newLatSemi, Endian.little);
-              bd.setInt32(lngOff, newLngSemi, Endian.little);
-              // Write back — ByteData.sublistView shares the underlying buffer
-            }
-          }
-        }
-        pos += def.totalFieldDataSize + 1;
+    for (var record in fitFile.records) {
+      final msg = record.message;
+      switch (msg) {
+        case RecordMessage m:
+          _fix(m.positionLat, m.positionLong, (la, lo) { m.positionLat = la; m.positionLong = lo; }, isGcj2Wgs);
+        case CoursePointMessage m:
+          _fix(m.positionLat, m.positionLong, (la, lo) { m.positionLat = la; m.positionLong = lo; }, isGcj2Wgs);
+        case SegmentPointMessage m:
+          _fix(m.positionLat, m.positionLong, (la, lo) { m.positionLat = la; m.positionLong = lo; }, isGcj2Wgs);
+        case SegmentLapMessage m:
+          _fix(m.startPositionLat, m.startPositionLong, (la, lo) { m.startPositionLat = la; m.startPositionLong = lo; }, isGcj2Wgs);
+          _fix(m.endPositionLat, m.endPositionLong, (la, lo) { m.endPositionLat = la; m.endPositionLong = lo; }, isGcj2Wgs);
+        case LapMessage m:
+          _fix(m.startPositionLat, m.startPositionLong, (la, lo) { m.startPositionLat = la; m.startPositionLong = lo; }, isGcj2Wgs);
+          _fix(m.endPositionLat, m.endPositionLong, (la, lo) { m.endPositionLat = la; m.endPositionLong = lo; }, isGcj2Wgs);
+        case SessionMessage m:
+          _fix(m.startPositionLat, m.startPositionLong, (la, lo) { m.startPositionLat = la; m.startPositionLong = lo; }, isGcj2Wgs);
+          _fix(m.necLat, m.necLong, (la, lo) { m.necLat = la; m.necLong = lo; }, isGcj2Wgs);
+          _fix(m.swcLat, m.swcLong, (la, lo) { m.swcLat = la; m.swcLong = lo; }, isGcj2Wgs);
       }
     }
-
-    // 更新 data_size 和 CRC
-    final newDataSize = bodyEnd - headerSize;
-    ByteData.sublistView(result, 4, 8).setUint32(0, newDataSize, Endian.little);
-
-    // CRC: header[0:12] + body
-    int crc = 0;
-    crc = _fitCrcUpdate(crc, Uint8List.sublistView(result, 0, 12));
-    crc = _fitCrcUpdate(crc, Uint8List.sublistView(result, headerSize, bodyEnd));
-    ByteData.sublistView(result, headerSize - 2, headerSize).setUint16(0, crc, Endian.little);
-
-    // File CRC at the end
-    if (fitBytes.length >= headerSize + dataSize + 2) {
-      int fileCrc = 0;
-      fileCrc = _fitCrcUpdate(fileCrc, Uint8List.sublistView(result, 0, 12));
-      fileCrc = _fitCrcUpdate(fileCrc, Uint8List.sublistView(result, headerSize, bodyEnd));
-      final crcPos = bodyEnd;
-      if (crcPos + 2 <= result.length) {
-        ByteData.sublistView(result, crcPos, crcPos + 2).setUint16(0, fileCrc, Endian.little);
-      }
-    }
-
-    return result;
+    fitFile.crc = null;
+    return fitFile.toBytes();
   }
 
-  static Future<Uint8List> processFitBytes(Uint8List fitBytes, CoordDirection direction) async {
-    final coords = _extractCoordsFromBinary(fitBytes);
-    lastSampleCount = coords.length;
-    if (coords.isEmpty) {
-      lastDetectionResult = null;
-      return fitBytes;
-    }
+  static void _fix(double? lat, double? lng, void Function(double la, double lo) apply, bool isGcj2Wgs) {
+    if (lat == null || lng == null) return;
+    final c = isGcj2Wgs ? CoordinateConverter.gcj2WGSExact(lat, lng) : CoordinateConverter.wgs2Gcj(lat, lng);
+    apply(c[0], c[1]);
+  }
 
-    // 检测是否需要纠正（如果坐标已经是目标格式则跳过）
+  /// 纠正 FIT 文件坐标
+  static Future<Uint8List> processFitBytes(Uint8List fitBytes, CoordDirection direction) async {
+    final coords = _extractCoordsFromFit(fitBytes);
+    lastSampleCount = coords.length;
+    if (coords.isEmpty) { lastDetectionResult = null; return fitBytes; }
+
     final isWgs84 = CoordinateConverter.isLikelyWGS84Enhanced(coords);
     lastDetectionResult = isWgs84;
     if (direction == CoordDirection.gcj2wgs && isWgs84 == true) return fitBytes;
     if (direction == CoordDirection.wgs2gcj && isWgs84 == false) return fitBytes;
 
     lastDetectionResult = (direction == CoordDirection.gcj2wgs) ? false : true;
-    return _patchFitBinary(fitBytes, direction);
+    return _correctFit(fitBytes, direction);
   }
 
+  /// 纠正 GPX 文件坐标
   static Future<Uint8List> processGpxBytes(Uint8List gpxBytes) async {
     final gpxString = utf8.decode(gpxBytes);
     final document = XmlDocument.parse(gpxString);
@@ -494,7 +227,6 @@ class CoordFixer {
     lastSampleCount = coords.length;
     if (coords.isNotEmpty) isWgs84 = CoordinateConverter.isLikelyWGS84Enhanced(coords);
     lastDetectionResult = isWgs84;
-
     if (isWgs84 == true || coords.isEmpty) return gpxBytes;
 
     for (var tagName in coordinateTags) {
@@ -515,6 +247,7 @@ class CoordFixer {
     return utf8.encode(document.toXmlString());
   }
 
+  /// 纠正 TCX 文件坐标
   static Future<Uint8List> processTcxBytes(Uint8List tcxBytes) async {
     final tcxString = utf8.decode(tcxBytes);
     final document = XmlDocument.parse(tcxString);
@@ -538,7 +271,6 @@ class CoordFixer {
     lastSampleCount = coords.length;
     if (coords.isNotEmpty) isWgs84 = CoordinateConverter.isLikelyWGS84Enhanced(coords);
     lastDetectionResult = isWgs84;
-
     if (isWgs84 == true || coords.isEmpty) return tcxBytes;
 
     for (var latElem in allLatitudes) {
