@@ -4,7 +4,7 @@
 
 > 🚴 作者：长安四季骑行俱乐部 #小悟空 | GitHub: [sizaif/ridefitsync](https://github.com/sizaif/ridefitsync)
 
-## v1.1.7 正式版 (2026-06)
+## 正式版 (2026-08)
 
 首个稳定正式版本，重大更新：
 
@@ -198,12 +198,7 @@ lib/
 | `/edge/user/login/loginByVerifyCodeByWeb` | POST | 验证码登录 |
 | `/edge/user/bind/webUploadFit` | POST | FIT 上传 |
 
-## 长安四季骑行俱乐部
 
-由西安骑行爱好者组成的俱乐部，详情见 App 内设置页 →「长安四季#小悟空」→ 俱乐部介绍页。
-
-> 📱 微信：wzj19791116qy（注明来意）
-> 🕐 每日早昆 6:20 昆明池大石头
 
 ## 数据与隐私
 
