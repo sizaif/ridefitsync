@@ -12,11 +12,13 @@ class ClubIntroPage extends StatefulWidget {
 
 class _ClubIntroPageState extends State<ClubIntroPage> {
   String? _introText;
+  String? _vxText;
 
   @override
   void initState() {
     super.initState();
     _loadIntroText();
+    _loadVxText();
   }
 
   Future<void> _loadIntroText() async {
@@ -24,9 +26,15 @@ class _ClubIntroPageState extends State<ClubIntroPage> {
       final text = await DefaultAssetBundle.of(context)
           .loadString('assets/club/introduce');
       if (mounted) setState(() => _introText = text);
-    } catch (_) {
-      // 文件加载失败，保持 null，build 中显示加载中
-    }
+    } catch (_) {}
+  }
+
+  Future<void> _loadVxText() async {
+    try {
+      final text = await DefaultAssetBundle.of(context)
+          .loadString('assets/club/vx');
+      if (mounted) setState(() => _vxText = text);
+    } catch (_) {}
   }
 
   @override
@@ -251,6 +259,58 @@ class _ClubIntroPageState extends State<ClubIntroPage> {
   }
 
   // ---- 加入方式 ----
+  /// 解析 vx 文件内容，高亮微信ID
+  Widget _buildVxCard(ColorScheme cs, String text) {
+    final lines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF4CAF50).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF4CAF50).withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final line in lines)
+            _buildVxLine(cs, line.trim()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVxLine(ColorScheme cs, String line) {
+    final colonIdx = line.indexOf('：');
+    if (colonIdx == -1) colonIdx = line.indexOf(':');
+    final isWechat = line.contains('微信') || line.contains('wx');
+    final label = colonIdx > 0 ? line.substring(0, colonIdx) : '';
+    final value = colonIdx > 0 ? line.substring(colonIdx + 1) : line;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (label.isNotEmpty) ...[
+            Text('$label：', style: TextStyle(fontSize: 14, color: cs.onSurfaceVariant)),
+          ],
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: isWechat ? 18 : 14,
+                fontWeight: isWechat ? FontWeight.bold : FontWeight.normal,
+                color: isWechat ? const Color(0xFF2E7D32) : cs.onSurface,
+                letterSpacing: isWechat ? 0.5 : 0,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildJoinSection(ThemeData theme) {
     final colorScheme = theme.colorScheme;
     return GlassCard(
@@ -275,68 +335,18 @@ class _ClubIntroPageState extends State<ClubIntroPage> {
             ],
           ),
           const SizedBox(height: 14),
-          Text(
-            S.current.clubJoinIntro,
-            style: TextStyle(
-              fontSize: 14,
-              color: colorScheme.onSurfaceVariant,
-              height: 1.8,
+          // 从 assets/club/vx 加载联系方式
+          if (_vxText != null)
+            _buildVxCard(colorScheme, _vxText!)
+          else
+            Text(
+              S.current.clubJoinIntro,
+              style: TextStyle(fontSize: 14, color: colorScheme.onSurfaceVariant, height: 1.8),
             ),
-          ),
-          const SizedBox(height: 12),
-          // 微信号 — 重点突出
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFF4CAF50).withValues(alpha: 0.25),
-              ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.chat_rounded,
-                    color: Color(0xFF4CAF50), size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '微信',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'wzj19791116qy',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2E7D32),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.copy_rounded,
-                    size: 18, color: const Color(0xFF4CAF50).withValues(alpha: 0.6)),
-              ],
-            ),
-          ),
           const SizedBox(height: 12),
           Text(
             S.current.clubJoinActivity,
-            style: TextStyle(
-              fontSize: 14,
-              color: colorScheme.onSurfaceVariant,
-              height: 1.8,
-            ),
+            style: TextStyle(fontSize: 14, color: colorScheme.onSurfaceVariant, height: 1.8),
           ),
         ],
       ),
