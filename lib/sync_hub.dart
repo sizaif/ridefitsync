@@ -512,8 +512,8 @@ class SyncHub extends ChangeNotifier {
             _logManager.addLog('处理活动（强制模式）: $title');
           }
 
-          // 4. 下载FIT文件
-          final fitBytes = await _downloadSourceFit(activity);
+          // 4. 下载FIT文件（优先使用缓存）
+          final fitBytes = await _downloadFitWithCache(activity);
           final fileName = _buildFileName(activity, fitBytes: fitBytes);
 
           // Debug: 保存原始下载的 FIT 文件
@@ -623,6 +623,27 @@ class SyncHub extends ChangeNotifier {
       default:
         throw Exception('不支持的数据源: $_dataSource');
     }
+  }
+
+  /// 带缓存的 FIT 下载：相同 activity 优先用缓存，避免重复下载
+  Future<Uint8List> _downloadFitWithCache(Map<String, dynamic> activity) async {
+    final activityId = _getActivityId(activity);
+    final cachedId = _cachedActivity != null ? _getActivityId(_cachedActivity!) : null;
+
+    if (_cachedFitBytes != null && cachedId != null && activityId == cachedId) {
+      _logManager.addLog('使用缓存: $_cachedFileName');
+      return _cachedFitBytes!;
+    }
+
+    final fitBytes = await _downloadSourceFit(activity);
+
+    // 更新缓存
+    _cachedFitBytes = fitBytes;
+    _cachedFileName = _buildFileName(activity, fitBytes: fitBytes);
+    _cachedActivity = activity;
+    _cachedTime = DateTime.now();
+
+    return fitBytes;
   }
 
   Future<Uint8List> _downloadSourceFit(Map<String, dynamic> activity) async {

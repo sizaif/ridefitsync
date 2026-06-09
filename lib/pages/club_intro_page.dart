@@ -281,8 +281,8 @@ class _ClubIntroPageState extends State<ClubIntroPage> {
   }
 
   Widget _buildVxLine(ColorScheme cs, String line) {
-    final colonIdx = line.indexOf('：');
-    if (colonIdx == -1) colonIdx = line.indexOf(':');
+    final colonIdx0 = line.indexOf('：');
+    final colonIdx = colonIdx0 != -1 ? colonIdx0 : line.indexOf(':');
     final isWechat = line.contains('微信') || line.contains('wx');
     final label = colonIdx > 0 ? line.substring(0, colonIdx) : '';
     final value = colonIdx > 0 ? line.substring(colonIdx + 1) : line;

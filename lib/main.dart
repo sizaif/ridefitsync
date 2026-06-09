@@ -12,17 +12,17 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const AutoFit2StravaApp());
+  runApp(const RideFitSync());
 }
 
-class AutoFit2StravaApp extends StatefulWidget {
-  const AutoFit2StravaApp({super.key});
+class RideFitSync extends StatefulWidget {
+  const RideFitSync({super.key});
 
   @override
-  State<AutoFit2StravaApp> createState() => _AutoFit2StravaAppState();
+  State<RideFitSync> createState() => _RideFitSyncState();
 }
 
-class _AutoFit2StravaAppState extends State<AutoFit2StravaApp> {
+class _RideFitSyncState extends State<RideFitSync> {
   final _syncHub = SyncHub();
   final _localeManager = LocaleManager();
   final _themeManager = ThemeManager();
@@ -77,7 +77,7 @@ class _AutoFit2StravaAppState extends State<AutoFit2StravaApp> {
           isZh: _localeManager.isZh,
           child: MaterialApp(
             navigatorKey: navigatorKey,
-            title: 'AutoFit2Strava',
+            title: 'RideFitSync',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
@@ -123,7 +123,7 @@ class LoadingPage extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               const Text(
-                'AutoFit2Strava',
+                'RideFitSync',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,

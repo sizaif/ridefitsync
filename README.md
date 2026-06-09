@@ -1,4 +1,4 @@
-# AutoFit2Strava
+# RideFitSync
 
 自动从运动平台获取 FIT 文件并同步到多个目标平台。
 
