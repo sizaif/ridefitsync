@@ -21,6 +21,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   bool _activityDesc = true;
   bool _forceSync = false;
   int _syncInterval = 120;
+  int _syncConcurrency = 3;
   String _timeRange = 'all';
 
   @override
@@ -37,6 +38,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       _activityDesc = activityDesc;
       _forceSync = forceSync;
       _syncInterval = _syncHub.syncIntervalMinutes;
+      _syncConcurrency = _syncHub.syncConcurrency;
       _timeRange = _syncHub.activityTimeRange;
     });
   }
@@ -91,6 +93,17 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               subtitle: Text('每 $_syncInterval 分钟'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showIntervalPicker(context),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+              leading: const Icon(Icons.speed_rounded, color: _orange),
+              title: const Text('同步并发数'),
+              subtitle: Text('同时处理 $_syncConcurrency 个活动'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showConcurrencyPicker(context),
             ),
           ),
           const SizedBox(height: 10),
@@ -258,12 +271,42 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
   }
 
+  void _showConcurrencyPicker(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('同步并发数'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var value = 1; value <= 10; value++)
+              RadioListTile<int>(
+                title: Text('$value 个活动同时处理'),
+                subtitle: value == 1 ? const Text('串行（最慢，最稳定）') : null,
+                value: value,
+                groupValue: _syncConcurrency,
+                activeColor: _orange,
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _syncConcurrency = v);
+                    _syncHub.setSyncConcurrency(v);
+                    Navigator.pop(ctx);
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _timeRangeLabel(String range) {
     switch (range) {
       case 'today': return '今天';
       case '3days': return '近 3 天';
       case 'week': return '近一周';
       case 'month': return '近一个月';
+      case '3months': return '近三个月';
       default: return '全部活动';
     }
   }
@@ -276,15 +319,20 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            {'value': 'all', 'label': '全部活动'},
             {'value': 'today', 'label': '今天'},
             {'value': '3days', 'label': '近 3 天'},
             {'value': 'week', 'label': '近一周'},
             {'value': 'month', 'label': '近一个月'},
+            {'value': '3months', 'label': '近三个月'},
+            {'value': 'all', 'label': '全部活动', 'warning': true},
           ].map((item) {
             return RadioListTile<String>(
-              title: Text(item['label']!),
-              value: item['value']!,
+              title: Text(item['label'] as String),
+              subtitle: item['warning'] == true
+                  ? const Text('数据量可能会过大，导致程序变卡',
+                      style: TextStyle(color: Colors.orange, fontSize: 12))
+                  : null,
+              value: item['value'] as String,
               groupValue: _timeRange,
               activeColor: _orange,
               onChanged: (v) {

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'managers/onelap_manager.dart';
@@ -130,7 +129,11 @@ class SyncHub extends ChangeNotifier {
   int _syncIntervalMinutes = 120;
   void Function(int successCount, int failCount)? onSyncCompleted;
 
+  // 并发同步数
+  int _syncConcurrency = 3;
+
   bool get autoSyncEnabled => _autoSyncEnabled;
+  int get syncConcurrency => _syncConcurrency;
 
   bool get enableOnelap => _enableOnelap;
   bool get enableStrava => _enableStrava;
@@ -233,6 +236,10 @@ class SyncHub extends ChangeNotifier {
       key: 'force_sync',
       defaultValue: false,
     );
+    _syncConcurrency = await _storage.readIntPrefs(
+      key: 'sync_concurrency',
+      defaultValue: 3,
+    );
     await _loadAutoSyncSettings();
     notifyListeners();
   }
@@ -326,6 +333,8 @@ class SyncHub extends ChangeNotifier {
         return DateTime.now().subtract(const Duration(days: 7));
       case 'month':
         return DateTime.now().subtract(const Duration(days: 30));
+      case '3months':
+        return DateTime.now().subtract(const Duration(days: 90));
       default:
         return null; // 'all' — 不限制
     }
@@ -383,6 +392,13 @@ class SyncHub extends ChangeNotifier {
     _forceSync = value;
     await _storage.writeBoolPrefs(key: 'force_sync', value: value);
     _logManager.addLog(value ? '强制同步已开启' : '强制同步已关闭');
+    notifyListeners();
+  }
+
+  Future<void> setSyncConcurrency(int value) async {
+    _syncConcurrency = value.clamp(1, 10);
+    await _storage.writeIntPrefs(key: 'sync_concurrency', value: _syncConcurrency);
+    _logManager.addLog('同步并发数更新为 $_syncConcurrency');
     notifyListeners();
   }
 
@@ -455,7 +471,7 @@ class SyncHub extends ChangeNotifier {
   bool get garminLoggedIn => _garminManager.isLoggedIn;
   bool get edgeRideLoggedIn => _edgeRideManager.isLoggedIn;
 
-  // 执行同步
+  // 执行同步（并发 worker pool 模式）
   Future<void> sync() async {
     if (_isSyncing) return;
     if (!canSync) {
@@ -487,51 +503,32 @@ class SyncHub extends ChangeNotifier {
       // 2. 获取当前启用的平台列表
       final enabledPlatforms = _getEnabledPlatforms();
 
-      // 3. 遍历每个活动
-      for (var activity in activities) {
-        try {
-          final activityId = _getActivityId(activity);
-          final title = activity['title'] ?? activity['name'] ?? '未命名活动';
+      // 3. 并发处理活动（worker pool）
+      final concurrency = _syncConcurrency.clamp(1, activities.length);
+      _logManager.addLog('使用 $concurrency 个并发处理活动');
 
-          // 检查是否需要同步
-          if (!_forceSync) {
-            // 非强制模式下，检查是否已经同步到所有启用的平台
-            final platformsToSync = _syncRecordManager.getPlatformsToSync(
-              activityId,
-              enabledPlatforms,
-            );
-            if (platformsToSync.isEmpty) {
-              _logManager.addLog('跳过活动（已同步）: $title');
-              _skippedCount++;
-              continue;
-            }
-            _logManager.addLog(
-              '处理活动: $title (待同步平台: ${platformsToSync.join(", ")})',
-            );
-          } else {
-            _logManager.addLog('处理活动（强制模式）: $title');
-          }
+      var nextIndex = 0;
 
-          // 4. 下载FIT文件（优先使用缓存）
-          final fitBytes = await _downloadFitWithCache(activity);
-          final fileName = _buildFileName(activity, fitBytes: fitBytes);
+      Future<void> worker() async {
+        while (true) {
+          final i = nextIndex;
+          if (i >= activities.length) break;
+          nextIndex = i + 1;
 
-          // Debug: 保存原始下载的 FIT 文件
-          await _saveDebugFile(fitBytes, 'original', fileName);
-
-          // 5. 上传到各平台（带同步状态记录）
-          await uploadToAllPlatforms(
-            fitBytes,
-            fileName,
-            activityId: activityId,
-          );
-
-          _syncedCount++;
-        } catch (e) {
-          _logManager.addLog('处理活动失败: $e', isError: true);
-          _failedCount++;
+          final activity = activities[i];
+          await _processOneActivity(activity, enabledPlatforms);
         }
       }
+
+      // 启动 worker pool
+      final workers = <Future<void>>[];
+      for (var i = 0; i < concurrency; i++) {
+        workers.add(worker());
+      }
+      await Future.wait(workers);
+
+      // 同步结束后统一保存记录
+      await _syncRecordManager.flush();
 
       _logManager.addLog(
         '同步完成: 成功 $_syncedCount, 失败 $_failedCount, 跳过 $_skippedCount',
@@ -542,6 +539,57 @@ class SyncHub extends ChangeNotifier {
     } finally {
       _isSyncing = false;
       notifyListeners();
+    }
+  }
+
+  /// 处理单个活动（下载 + 上传到所有平台）
+  Future<void> _processOneActivity(
+    Map<String, dynamic> activity,
+    List<String> enabledPlatforms,
+  ) async {
+    try {
+      final activityId = _getActivityId(activity);
+      final title = activity['title'] ?? activity['name'] ?? '未命名活动';
+
+      // 检查是否需要同步
+      if (!_forceSync) {
+        final platformsToSync = _syncRecordManager.getPlatformsToSync(
+          activityId,
+          enabledPlatforms,
+        );
+        if (platformsToSync.isEmpty) {
+          _logManager.addLog('跳过活动（已同步）: $title');
+          _skippedCount++;
+          return;
+        }
+        _logManager.addLog(
+          '处理活动: $title (待同步平台: ${platformsToSync.join(", ")})',
+        );
+      } else {
+        _logManager.addLog('处理活动（强制模式）: $title');
+      }
+
+      // 下载 FIT 文件（并发模式下不使用单活动缓存）
+      final fitBytes = await _downloadSourceFit(activity);
+      final fileName = _buildFileName(activity, fitBytes: fitBytes);
+
+      // Debug: 保存原始下载的 FIT 文件
+      await _saveDebugFile(fitBytes, 'original', fileName);
+
+      // 上传到各平台（并行上传 + 批量保存记录）
+      await uploadToAllPlatforms(
+        fitBytes,
+        fileName,
+        activityId: activityId,
+      );
+
+      // 每完成一个活动立即持久化记录，防止中途崩溃丢失
+      await _syncRecordManager.flush();
+
+      _syncedCount++;
+    } catch (e) {
+      _logManager.addLog('处理活动失败: $e', isError: true);
+      _failedCount++;
     }
   }
 
@@ -623,27 +671,6 @@ class SyncHub extends ChangeNotifier {
       default:
         throw Exception('不支持的数据源: $_dataSource');
     }
-  }
-
-  /// 带缓存的 FIT 下载：相同 activity 优先用缓存，避免重复下载
-  Future<Uint8List> _downloadFitWithCache(Map<String, dynamic> activity) async {
-    final activityId = _getActivityId(activity);
-    final cachedId = _cachedActivity != null ? _getActivityId(_cachedActivity!) : null;
-
-    if (_cachedFitBytes != null && cachedId != null && activityId == cachedId) {
-      _logManager.addLog('使用缓存: $_cachedFileName');
-      return _cachedFitBytes!;
-    }
-
-    final fitBytes = await _downloadSourceFit(activity);
-
-    // 更新缓存
-    _cachedFitBytes = fitBytes;
-    _cachedFileName = _buildFileName(activity, fitBytes: fitBytes);
-    _cachedActivity = activity;
-    _cachedTime = DateTime.now();
-
-    return fitBytes;
   }
 
   Future<Uint8List> _downloadSourceFit(Map<String, dynamic> activity) async {
@@ -761,78 +788,92 @@ class SyncHub extends ChangeNotifier {
       return;
     }
 
-    // 按平台上传（每个平台独立纠偏方向）
-    final results = <String, bool>{};
+    // 并行上传到所有平台（每个平台独立纠偏方向）
+    final futures = <Future<({String platform, bool success, String? error})>>[];
     for (var platform in platformsToSync) {
-      try {
-        final corrected = await _maybeCorrect(fitBytes, fileName, platform);
-        bool success = false;
-        switch (platform) {
-          case 'strava':
-            success = await _uploadToStrava(
-              corrected,
-              fileName,
-              externalId: activityId,
-            );
-            break;
-          case 'igp':
-            success = await _uploadToIgp(corrected, fileName);
-            break;
-          case 'xingzhe':
-            success = await _uploadToXingzhe(corrected, fileName);
-            break;
-          case 'giant':
-            success = await _uploadToGiant(corrected, fileName);
-            break;
-          case 'garmin':
-            success = await _uploadToGarmin(corrected, fileName);
-            break;
-          case 'edge_ride':
-            success = await _uploadToEdgeRide(corrected, fileName);
-            break;
-          case 'onelap':
-            success = await _uploadToOnelap(corrected, fileName);
-            break;
-        }
-        results[platform] = success;
+      futures.add(_uploadToOnePlatform(fitBytes, fileName, platform, activityId));
+    }
+    final results = await Future.wait(futures);
 
-        // 记录同步状态
-        if (success) {
-          await _syncRecordManager.recordSuccess(
-            activityId,
-            platform,
-            activityName: fileName,
-          );
-        } else {
-          await _syncRecordManager.recordFailure(
-            activityId,
-            platform,
-            '上传失败',
-            activityName: fileName,
-          );
-        }
-      } catch (e) {
-        results[platform] = false;
-        final errMsg = e.toString().replaceFirst('Exception: ', '');
+    // 批量记录同步状态（内存中记录，活动完成后统一保存）
+    var failCount = 0;
+    for (var r in results) {
+      if (r.success) {
+        await _syncRecordManager.recordSuccess(
+          activityId,
+          r.platform,
+          activityName: fileName,
+          saveImmediately: false,
+        );
+      } else {
+        failCount++;
         await _syncRecordManager.recordFailure(
           activityId,
-          platform,
-          errMsg,
+          r.platform,
+          r.error ?? '上传失败',
           activityName: fileName,
+          saveImmediately: false,
         );
-        _logManager.addLog('上传到 $platform 失败: $e', isError: true);
       }
     }
 
     // 统计结果
-    final failCount = results.values.where((r) => !r).length;
     final successCount = results.length - failCount;
     if (successCount == 0 && results.isNotEmpty) {
+      // 即使全部失败也先保存记录再抛异常
+      await _syncRecordManager.flush();
       throw Exception('所有目标平台上传均失败');
     } else if (failCount > 0) {
       _logManager.addLog(
         '部分平台上传失败: $successCount/${results.length} 成功, $failCount 失败',
       );
+    }
+  }
+
+  /// 上传到单个平台，返回结果
+  Future<({String platform, bool success, String? error})> _uploadToOnePlatform(
+    Uint8List fitBytes,
+    String fileName,
+    String platform,
+    String activityId,
+  ) async {
+    try {
+      final corrected = await _maybeCorrect(fitBytes, fileName, platform);
+      bool success = false;
+      switch (platform) {
+        case 'strava':
+          success = await _uploadToStrava(
+            corrected,
+            fileName,
+            externalId: activityId,
+          );
+          break;
+        case 'igp':
+          success = await _uploadToIgp(corrected, fileName);
+          break;
+        case 'xingzhe':
+          success = await _uploadToXingzhe(corrected, fileName);
+          break;
+        case 'giant':
+          success = await _uploadToGiant(corrected, fileName);
+          break;
+        case 'garmin':
+          success = await _uploadToGarmin(corrected, fileName);
+          break;
+        case 'edge_ride':
+          success = await _uploadToEdgeRide(corrected, fileName);
+          break;
+        case 'onelap':
+          success = await _uploadToOnelap(corrected, fileName);
+          break;
+        default:
+          return (platform: platform, success: false, error: '不支持的平台: $platform');
+      }
+      return (platform: platform, success: success, error: null);
+    } catch (e) {
+      final errMsg = e.toString().replaceFirst('Exception: ', '');
+      _logManager.addLog('上传到 $platform 失败: $e', isError: true);
+      return (platform: platform, success: false, error: errMsg);
     }
   }
 

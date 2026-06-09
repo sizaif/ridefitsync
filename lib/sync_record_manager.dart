@@ -71,7 +71,7 @@ class SyncRecordManager {
   }
 
   /// 记录同步成功
-  Future<void> recordSuccess(String activityId, String platform, {String? activityName}) async {
+  Future<void> recordSuccess(String activityId, String platform, {String? activityName, bool saveImmediately = true}) async {
     _syncRecords[activityId] ??= {};
     _syncRecords[activityId]![platform] = SyncStatus(
       isSuccess: true,
@@ -79,11 +79,11 @@ class SyncRecordManager {
       errorMessage: null,
       activityName: activityName,
     );
-    await _saveRecords();
+    if (saveImmediately) await _saveRecords();
   }
 
   /// 记录同步失败
-  Future<void> recordFailure(String activityId, String platform, String errorMessage, {String? activityName}) async {
+  Future<void> recordFailure(String activityId, String platform, String errorMessage, {String? activityName, bool saveImmediately = true}) async {
     _syncRecords[activityId] ??= {};
     _syncRecords[activityId]![platform] = SyncStatus(
       isSuccess: false,
@@ -91,6 +91,11 @@ class SyncRecordManager {
       errorMessage: errorMessage,
       activityName: activityName,
     );
+    if (saveImmediately) await _saveRecords();
+  }
+
+  /// 将内存中的记录持久化到存储
+  Future<void> flush() async {
     await _saveRecords();
   }
 
