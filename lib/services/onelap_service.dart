@@ -5,6 +5,13 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'http_client.dart';
 
+class OneLapAuthExpiredException implements Exception {
+  final String message;
+  OneLapAuthExpiredException([this.message = 'OneLap login expired']);
+
+  @override
+  String toString() => message;
+}
 
 /// 顽鹿OTM服务
 /// 参考 running_page/onelap_sync.py 和 ref/strava_auto2/lib/onelap_service.dart
@@ -23,7 +30,7 @@ class OneLapService {
   String? _uid;
   bool _useCookieAuth = false;
 
-  set token(String value) {
+  set token(String? value) {
     _token = value;
   }
 
@@ -33,6 +40,18 @@ class OneLapService {
   }
 
   bool get isLoggedIn => _token != null;
+
+  bool _isAuthExpiredStatus(int statusCode) =>
+      statusCode == 401 || statusCode == 403;
+
+  void _throwIfAuthExpired(http.Response response, String label) {
+    if (_isAuthExpiredStatus(response.statusCode)) {
+      _token = null;
+      throw OneLapAuthExpiredException(
+        '$label auth expired: ${response.statusCode}',
+      );
+    }
+  }
 
   /// 构建认证请求头
   /// OTM API (otm.onelap.cn) 只接受 Authorization 头，不接受 Cookie
@@ -178,6 +197,7 @@ class OneLapService {
           if (hasMore) page++;
         }
       } else {
+        _throwIfAuthExpired(response, 'get activities');
         throw Exception('Failed to get activities: ${response.statusCode}');
       }
     }
@@ -190,6 +210,7 @@ class OneLapService {
           Uri.parse(_activityListDetailUrl + activity['id'].toString()),
           headers: _authHeaders(),
         );
+        _throwIfAuthExpired(response, 'get activity detail');
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (data is Map && data.containsKey('data')) {
@@ -200,6 +221,7 @@ class OneLapService {
           }
         }
       } catch (e) {
+        if (e is OneLapAuthExpiredException) rethrow;
         // 单个活动详情获取失败不影响其他活动
       }
     }
@@ -239,6 +261,7 @@ class OneLapService {
     if (response.statusCode == 200) {
       return response.bodyBytes;
     } else {
+      _throwIfAuthExpired(response, 'download fit');
       throw Exception('Failed to download file: ${response.statusCode}');
     }
   }
@@ -258,6 +281,7 @@ class OneLapService {
         return data['data'] as Map<String, dynamic>;
       }
     }
+    _throwIfAuthExpired(response, 'get activity detail');
     return null;
   }
 }

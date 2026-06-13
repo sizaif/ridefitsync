@@ -26,8 +26,10 @@ class OneLapManager extends ChangeNotifier {
 
   String? _token;
   int? _tokenExp;
+  bool _hasSavedCredentials = false;
 
   bool get isLoggedIn {
+    if (_hasSavedCredentials) return true;
     if (_token == null) return false;
     // 如果没有过期时间或过期时间为0，只要token存在就认为已登录
     if (_tokenExp == null || _tokenExp == 0) return true;
@@ -41,9 +43,13 @@ class OneLapManager extends ChangeNotifier {
 
     final nickname = await _storage.read(key: 'onelap_nickname');
     final account = await _storage.read(key: 'onelap_username');
+    final password = await _storage.read(key: 'onelap_password');
     _username = nickname ?? (account != null ? maskAccount(account) : null);
     _token = await _storage.read(key: 'onelap_token');
     _tokenExp = int.tryParse(await _storage.read(key: 'onelap_token_exp') ?? "") ?? 0;
+    _hasSavedCredentials =
+        (account != null && account.isNotEmpty && password != null && password.isNotEmpty) ||
+        (_token != null && _token!.isNotEmpty);
     notifyListeners();
   }
 
@@ -97,6 +103,7 @@ class OneLapManager extends ChangeNotifier {
         // 保存凭证
         await _storage.write(key: 'onelap_username', value: username);
         await _storage.write(key: 'onelap_password', value: password);
+        _hasSavedCredentials = true;
         final nick = result['nickname'] as String?;
         _username = (nick != null && nick.isNotEmpty) ? nick : maskAccount(username);
         if (nick != null && nick.isNotEmpty) {
@@ -125,6 +132,8 @@ class OneLapManager extends ChangeNotifier {
     String? nickname,
   }) async {
     try {
+      await writeToken(token);
+      _hasSavedCredentials = true;
       // 保存 token 到安全存储
       await writeToken(token);
 
@@ -168,6 +177,7 @@ class OneLapManager extends ChangeNotifier {
     _username = null;
     _token = null;
     _tokenExp = null;
+    _hasSavedCredentials = false;
     _logManager.addLog('顽鹿已登出');
     notifyListeners();
   }
@@ -204,6 +214,7 @@ class OneLapManager extends ChangeNotifier {
         _username = maskAccount(username);
       }
       await writeToken(loginResult['token']);
+      _hasSavedCredentials = true;
       return true;
     }
 
@@ -212,15 +223,43 @@ class OneLapManager extends ChangeNotifier {
   }
 
   // 获取活动列表
+  Future<bool> _recoverAuthAfterExpired() async {
+    _token = null;
+    _tokenExp = 0;
+    _service.token = null;
+    await _storage.delete(key: 'onelap_token');
+    await _storage.delete(key: 'onelap_token_exp');
+    _logManager.addLog('顽鹿 token 已失效，尝试使用保存的凭证重新登录...');
+    final recovered = await checkAndLogin();
+    if (!recovered) {
+      _logManager.addLog('顽鹿登录已失效，请重新登录', isError: true);
+    }
+    notifyListeners();
+    return recovered;
+  }
+
   Future<List<Map<String, dynamic>>> getActivities({DateTime? startDate}) async {
     if (!await checkAndLogin()) {
       throw Exception('顽鹿未登录');
     }
 
     _logManager.addLog('获取顽鹿活动列表...');
-    final activities = await _service.getActivities(startDate ?? _lastSyncDate);
+    final activities = await _loadActivitiesOrLogout(startDate ?? _lastSyncDate);
     _logManager.addLog('获取到 ${activities.length} 个顽鹿活动');
     return activities;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadActivitiesOrLogout(
+    DateTime? startDate,
+  ) async {
+    try {
+      return await _service.getActivities(startDate);
+    } on OneLapAuthExpiredException {
+      if (await _recoverAuthAfterExpired()) {
+        return await _service.getActivities(startDate);
+      }
+      throw Exception('顽鹿登录已失效，请重新登录');
+    }
   }
 
   // 上传FIT文件到顽鹿（暂未实现，预留接口）
@@ -235,9 +274,20 @@ class OneLapManager extends ChangeNotifier {
     }
 
     _logManager.addLog('下载顽鹿FIT文件: $fileKey');
-    final bytes = await _service.downloadFit(fileKey);
+    final bytes = await _downloadFitOrLogout(fileKey);
     _logManager.addLog('顽鹿FIT文件下载完成');
     return bytes;
+  }
+
+  Future<Uint8List> _downloadFitOrLogout(String fileKey) async {
+    try {
+      return await _service.downloadFit(fileKey);
+    } on OneLapAuthExpiredException {
+      if (await _recoverAuthAfterExpired()) {
+        return await _service.downloadFit(fileKey);
+      }
+      throw Exception('顽鹿登录已失效，请重新登录');
+    }
   }
 
   // 同步活动到其他平台
@@ -254,7 +304,7 @@ class OneLapManager extends ChangeNotifier {
       }
 
       _logManager.addLog('开始顽鹿同步...');
-      final activities = await _service.getActivities(_lastSyncDate);
+      final activities = await _loadActivitiesOrLogout(_lastSyncDate);
 
       if (activities.isEmpty) {
         _logManager.addLog('没有新的顽鹿活动');

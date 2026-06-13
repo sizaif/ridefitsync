@@ -62,6 +62,9 @@ class SyncHub extends ChangeNotifier {
   /// 只有在「国内源(GCJ-02) → 海外目标(WGS-84)」时才需要纠偏
   /// 海外源 → 国内目标时不转换，国内平台会自行处理坐标
   CoordDirection? _coordDirection(String target) {
+    if (_dataSource == 'onelap' && target == 'igp') {
+      return CoordDirection.gcj2wgs;
+    }
     final sourceGcj = _isGcjPlatform(_dataSource);
     final targetGcj = _isGcjPlatform(target);
     if (sourceGcj && !targetGcj) return CoordDirection.gcj2wgs; // GCJ→WGS

@@ -16,13 +16,18 @@ class GarminManager extends ChangeNotifier {
 
   String? _username;
   String? get username => _username;
+  bool _hasSavedCredentials = false;
 
   Future<void> init() async {
     await _storage.init();
     final nickname = await _storage.read(key: 'garmin_nickname');
     final account = await _storage.read(key: 'garmin_username');
+    final password = await _storage.read(key: 'garmin_password');
     _username = nickname ?? (account != null ? maskAccount(account) : null);
     final token = await _storage.read(key: 'garmin_token');
+    _hasSavedCredentials =
+        (account != null && account.isNotEmpty && password != null && password.isNotEmpty) ||
+        (token != null && token.isNotEmpty);
     if (token != null) _service.token = token;
     _service.refreshToken = await _storage.read(key: 'garmin_refresh_token');
     _service.diClientId = await _storage.read(key: 'garmin_client_id');
@@ -36,6 +41,7 @@ class GarminManager extends ChangeNotifier {
         await _storage.write(key: 'garmin_username', value: email);
         await _storage.write(key: 'garmin_password', value: password);
         await _storage.write(key: 'garmin_token', value: result['token'] ?? '');
+        _hasSavedCredentials = true;
         if (result['refreshToken'] != null) {
           await _storage.write(key: 'garmin_refresh_token', value: result['refreshToken']);
         }
@@ -79,6 +85,7 @@ class GarminManager extends ChangeNotifier {
     await _storage.delete(key: 'garmin_client_id');
     await _storage.delete(key: 'garmin_nickname');
     _username = null;
+    _hasSavedCredentials = false;
     _service.token = '';
     _service.refreshToken = null;
     _service.diClientId = null;
@@ -112,6 +119,7 @@ class GarminManager extends ChangeNotifier {
     final loginResult = await _service.login(email, password);
     if (loginResult['success'] == true) {
       await _storage.write(key: 'garmin_token', value: loginResult['token'] ?? '');
+      _hasSavedCredentials = true;
       _fetchDisplayName();
       return true;
     }
@@ -153,5 +161,5 @@ class GarminManager extends ChangeNotifier {
     return result;
   }
 
-  bool get isLoggedIn => _service.isLoggedIn;
+  bool get isLoggedIn => _hasSavedCredentials || _service.isLoggedIn;
 }

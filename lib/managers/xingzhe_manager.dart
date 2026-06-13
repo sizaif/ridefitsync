@@ -22,14 +22,19 @@ class XingzheManager extends ChangeNotifier {
   String? get username => _username;
 
   String? _sessionId;
+  bool _hasSavedCredentials = false;
 
   Future<void> init() async {
     await _storage.init();
 
     final nickname = await _storage.read(key: 'xingzhe_nickname');
     final account = await _storage.read(key: 'xingzhe_username');
+    final password = await _storage.read(key: 'xingzhe_password');
     _username = nickname ?? (account != null ? maskAccount(account) : null);
     _sessionId = await _storage.read(key: 'xingzhe_session_id');
+    _hasSavedCredentials =
+        (account != null && account.isNotEmpty && password != null && password.isNotEmpty) ||
+        (_sessionId != null && _sessionId!.isNotEmpty);
 
     if (_sessionId != null) {
       _service.token = _sessionId!;
@@ -45,6 +50,7 @@ class XingzheManager extends ChangeNotifier {
     String? nickname,
   }) async {
     _sessionId = sessionId;
+    _hasSavedCredentials = true;
     if (username != null) {
       await _storage.write(key: 'xingzhe_username', value: username);
     }
@@ -135,6 +141,7 @@ class XingzheManager extends ChangeNotifier {
     await _storage.delete(key: 'xingzhe_nickname');
     _username = null;
     _sessionId = null;
+    _hasSavedCredentials = false;
     _service.token = null;
     _logManager.addLog('行者已登出');
     notifyListeners();
@@ -223,5 +230,5 @@ class XingzheManager extends ChangeNotifier {
     throw Exception('下载失败: ${response.statusCode}');
   }
 
-  bool get isLoggedIn => _service.isLoggedIn;
+  bool get isLoggedIn => _hasSavedCredentials || _service.isLoggedIn;
 }

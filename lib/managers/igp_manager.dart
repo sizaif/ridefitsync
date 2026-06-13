@@ -26,6 +26,7 @@ class IGPManager extends ChangeNotifier {
   String? _token;
   String? _refreshToken;
   int? _tokenExp;
+  bool _hasSavedCredentials = false;
 
   Future<void> init() async {
     await _storage.init();
@@ -33,10 +34,14 @@ class IGPManager extends ChangeNotifier {
 
     final nickname = await _storage.read(key: 'igp_nickname');
     final account = await _storage.read(key: 'igp_username');
+    final password = await _storage.read(key: 'igp_password');
     _username = nickname ?? (account != null ? maskAccount(account) : null);
     _token = await _storage.read(key: 'igp_token');
     _refreshToken = await _storage.read(key: 'igp_refresh_token');
     _tokenExp = int.tryParse(await _storage.read(key: 'igp_token_exp') ?? "") ?? 0;
+    _hasSavedCredentials =
+        (account != null && account.isNotEmpty && password != null && password.isNotEmpty) ||
+        (_token != null && _token!.isNotEmpty);
 
     // 设置 token 到 service
     if (_token != null) {
@@ -93,6 +98,7 @@ class IGPManager extends ChangeNotifier {
         // 保存凭证
         await _storage.write(key: 'igp_username', value: username);
         await _storage.write(key: 'igp_password', value: password);
+        _hasSavedCredentials = true;
         final nick = result['nickname'] as String?;
         _username = (nick != null && nick.isNotEmpty) ? nick : maskAccount(username);
         if (nick != null && nick.isNotEmpty) {
@@ -134,6 +140,7 @@ class IGPManager extends ChangeNotifier {
       if (result['success'] == true) {
         // 保存凭证（不保存密码，因为是验证码登录）
         await _storage.write(key: 'igp_username', value: phone);
+        _hasSavedCredentials = true;
         final nick = result['nickname'] as String?;
         _username = (nick != null && nick.isNotEmpty) ? nick : maskAccount(phone);
         if (nick != null && nick.isNotEmpty) {
@@ -168,6 +175,7 @@ class IGPManager extends ChangeNotifier {
     _token = null;
     _refreshToken = null;
     _tokenExp = null;
+    _hasSavedCredentials = false;
     _service.token = null;
     _logManager.addLog('iGPSPORT已登出');
     notifyListeners();
@@ -207,11 +215,32 @@ class IGPManager extends ChangeNotifier {
         refreshToken: loginResult['refresh_token'],
         expiresIn: loginResult['expires_in'],
       );
+      _hasSavedCredentials = true;
       return true;
     }
 
     _logManager.addLog('iGPSPORT重新登录失败', isError: true);
     return false;
+  }
+
+  bool _looksLikeAuthError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('401') ||
+        message.contains('403') ||
+        message.contains('not logged in') ||
+        message.contains('unauthorized') ||
+        message.contains('forbidden');
+  }
+
+  Future<bool> _recoverAuthAfterFailure(Object error) async {
+    if (!_looksLikeAuthError(error)) return false;
+    _token = null;
+    _tokenExp = 0;
+    _service.token = null;
+    await _storage.delete(key: 'igp_token');
+    await _storage.delete(key: 'igp_token_exp');
+    _logManager.addLog('iGPSPORT token 已失效，尝试使用保存的凭证重新登录...');
+    return await checkAndLogin();
   }
 
   // 上传FIT文件
@@ -226,6 +255,11 @@ class IGPManager extends ChangeNotifier {
       _logManager.addLog('iGPSPORT上传成功: $result');
       return result;
     } catch (e) {
+      if (await _recoverAuthAfterFailure(e)) {
+        final result = await _service.uploadFit(fitBytes, fileName);
+        _logManager.addLog('iGPSPORT上传成功: $result');
+        return result;
+      }
       rethrow;
     }
   }
@@ -237,7 +271,13 @@ class IGPManager extends ChangeNotifier {
     }
 
     _logManager.addLog('获取iGPSPORT活动列表...');
-    final activities = await _service.getActivities(startDate ?? _lastSyncDate);
+    List<Map<String, dynamic>> activities;
+    try {
+      activities = await _service.getActivities(startDate ?? _lastSyncDate);
+    } catch (e) {
+      if (!await _recoverAuthAfterFailure(e)) rethrow;
+      activities = await _service.getActivities(startDate ?? _lastSyncDate);
+    }
     _logManager.addLog('获取到 ${activities.length} 个iGPSPORT活动');
     return activities;
   }
@@ -254,5 +294,5 @@ class IGPManager extends ChangeNotifier {
     return bytes;
   }
 
-  bool get isLoggedIn => _service.isLoggedIn;
+  bool get isLoggedIn => _hasSavedCredentials || _service.isLoggedIn;
 }

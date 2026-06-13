@@ -22,14 +22,19 @@ class GiantManager extends ChangeNotifier {
   String? get username => _username;
 
   String? _token;
+  bool _hasSavedCredentials = false;
 
   Future<void> init() async {
     await _storage.init();
 
     final nickname = await _storage.read(key: 'giant_nickname');
     final account = await _storage.read(key: 'giant_username');
+    final password = await _storage.read(key: 'giant_password');
     _username = nickname ?? (account != null ? maskAccount(account) : null);
     _token = await _storage.read(key: 'giant_token');
+    _hasSavedCredentials =
+        (account != null && account.isNotEmpty && password != null && password.isNotEmpty) ||
+        (_token != null && _token!.isNotEmpty);
 
     if (_token != null) {
       _service.token = _token!;
@@ -40,6 +45,7 @@ class GiantManager extends ChangeNotifier {
 
   Future<void> _saveToken(String token, {String? username, String? nickname}) async {
     _token = token;
+    _hasSavedCredentials = true;
     if (username != null) {
       await _storage.write(key: 'giant_username', value: username);
     }
@@ -80,6 +86,7 @@ class GiantManager extends ChangeNotifier {
     await _storage.delete(key: 'giant_nickname');
     _username = null;
     _token = null;
+    _hasSavedCredentials = false;
     _service.token = null;
     _logManager.addLog('捷安特已登出');
     notifyListeners();
@@ -127,5 +134,5 @@ class GiantManager extends ChangeNotifier {
     }
   }
 
-  bool get isLoggedIn => _service.isLoggedIn;
+  bool get isLoggedIn => _hasSavedCredentials || _service.isLoggedIn;
 }

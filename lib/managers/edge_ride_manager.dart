@@ -19,6 +19,7 @@ class EdgeRideManager extends ChangeNotifier {
 
   String? _username;
   String? get username => _username;
+  bool _hasSavedCredentials = false;
 
   Future<void> init() async {
     await _storage.init();
@@ -26,12 +27,15 @@ class EdgeRideManager extends ChangeNotifier {
     // 恢复登录会话
     final sid = await _storage.read(key: 'edge_ride_sid');
     final uid = await _storage.read(key: 'edge_ride_uid');
+    final phone = await _storage.read(key: 'edge_ride_phone');
     if (sid != null) {
       _service.restoreSession(sid, uid);
     }
+    _hasSavedCredentials =
+        (sid != null && sid.isNotEmpty && uid != null && uid.isNotEmpty) ||
+        (phone != null && phone.isNotEmpty);
 
     final nickname = await _storage.read(key: 'edge_ride_nickname');
-    final phone = await _storage.read(key: 'edge_ride_phone');
     _username = nickname ?? (phone != null ? maskAccount(phone) : null);
 
     notifyListeners();
@@ -63,6 +67,7 @@ class EdgeRideManager extends ChangeNotifier {
           value: result['uid'] as String? ?? '',
         );
         _username = maskAccount(phone);
+        _hasSavedCredentials = true;
 
         _logManager.addLog('EdgeRide登录成功');
         notifyListeners();
@@ -83,6 +88,7 @@ class EdgeRideManager extends ChangeNotifier {
     await _storage.delete(key: 'edge_ride_uid');
     _service.restoreSession(null, null);
     _username = null;
+    _hasSavedCredentials = false;
     _logManager.addLog('EdgeRide已登出');
     notifyListeners();
   }
@@ -111,5 +117,5 @@ class EdgeRideManager extends ChangeNotifier {
     }
   }
 
-  bool get isLoggedIn => _service.isLoggedIn;
+  bool get isLoggedIn => _hasSavedCredentials || _service.isLoggedIn;
 }
